@@ -565,7 +565,13 @@ function setupFirebaseListeners(code) {
 
   const sessionRef = db.ref('sessions/' + code);
   const sh = snap => {
-    if (!snap.exists()) return;
+    if (!snap.exists()) {
+      if (isParticipantActive() && appState.participantName) {
+        localStorage.removeItem(ACTIVE_KEY);
+        showSessionEndedScreen();
+      }
+      return;
+    }
     localStorage.setItem(ACTIVE_KEY, JSON.stringify(snap.val()));
     if (isPresenterActive()) { updateLiveResults(); updateParticipantCount(); }
     if (isParticipantActive() && appState.participantName) syncParticipantView();
@@ -1032,6 +1038,9 @@ function startPresentation() {
 function endSession() {
   if (confirm('End session and return to start?')) {
     closeResultsOverlay();
+    const code = appState.sessionCode;
+    if (db && code) db.ref('sessions/' + code).remove().catch(() => {});
+    localStorage.removeItem(ACTIVE_KEY);
     cleanupFirebaseListeners();
     if (appState.speedTimerInterval) { clearInterval(appState.speedTimerInterval); appState.speedTimerInterval = null; }
     appState.session = [];
@@ -1537,9 +1546,20 @@ async function joinSession() {
   syncParticipantView();
 }
 
+function showSessionEndedScreen() {
+  const view = document.getElementById('participant-question-view');
+  if (!view) return;
+  appState.participantName = '';
+  appState.sessionCode = '';
+  view.innerHTML = `<div class="question-card"><div class="submitted-state"><div class="check">🏁</div><div style="font-size:1.1rem;font-weight:600;color:var(--text)">Session ended</div><div style="color:var(--text2);margin-bottom:1.5rem">Thanks for participating!</div><button class="btn" onclick="showScreen('screen-start');document.getElementById('join-form').classList.remove('hidden');document.getElementById('participant-question-view').classList.add('hidden')">← Back to start</button></div></div>`;
+}
+
 function syncParticipantView() {
   const active = getActiveSession();
-  if (!active || !appState.participantName) return;
+  if (!active || !appState.participantName) {
+    if (!active && appState.participantName && isParticipantActive()) showSessionEndedScreen();
+    return;
+  }
   const slide = active.slides[active.currentSlide];
   const view = document.getElementById('participant-question-view');
   const r = getResults();
