@@ -537,6 +537,7 @@ const FIREBASE_CONFIG = {
     await loadFirebaseSDK();
     if (!window.firebase.apps.length) window.firebase.initializeApp(FIREBASE_CONFIG);
     db = window.firebase.database();
+    initSessionsSync();
   } catch(e) { db = null; }
 })();
 
@@ -632,7 +633,46 @@ function saveSessionMeta(code, name, sessionId) {
 // SESSIONS LIBRARY
 // ============================================================
 function getSavedSessions() { try { return JSON.parse(localStorage.getItem(SAVED_SESSIONS_KEY) || '[]'); } catch { return []; } }
-function saveSessions(list) { localStorage.setItem(SAVED_SESSIONS_KEY, JSON.stringify(list)); }
+function saveSessions(list) {
+  localStorage.setItem(SAVED_SESSIONS_KEY, JSON.stringify(list));
+  if (db) {
+    const obj = {};
+    list.forEach(s => obj[s.id] = s);
+    db.ref('library/sessions').set(obj).catch(() => {});
+  }
+}
+
+function initSessionsSync() {
+  if (!db) return;
+  const ref = db.ref('library/sessions');
+  // On first connect: push any local-only sessions up to Firebase, or pull remote down
+  ref.once('value').then(snap => {
+    const local = getSavedSessions();
+    if (!snap.exists()) {
+      if (local.length) {
+        const obj = {};
+        local.forEach(s => obj[s.id] = s);
+        ref.set(obj).catch(() => {});
+      }
+    } else {
+      const remote = Object.values(snap.val() || {});
+      const remoteIds = new Set(remote.map(s => s.id));
+      const localOnly = local.filter(s => !remoteIds.has(s.id));
+      if (localOnly.length) {
+        const updates = {};
+        localOnly.forEach(s => updates[s.id] = s);
+        ref.update(updates).catch(() => {});
+      }
+    }
+  }).catch(() => {});
+  // Real-time listener — keeps all devices in sync
+  ref.on('value', snap => {
+    if (!snap.exists()) return;
+    const list = Object.values(snap.val() || {}).sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    localStorage.setItem(SAVED_SESSIONS_KEY, JSON.stringify(list));
+    if (document.getElementById('screen-sessions')?.classList.contains('active')) renderSessionsScreen();
+  });
+}
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
 function showSessionsScreen() {
