@@ -132,6 +132,8 @@ select.input-field{appearance:auto;cursor:pointer}
 .result-session-chevron.open{transform:rotate(180deg)}
 .result-session-body{padding:1.25rem;border-top:1px solid var(--border);display:none}
 .result-session-body.open{display:block}
+.result-session-checkbox{display:none}
+.results-list.select-mode .result-session-checkbox{display:block}
 
 .bar-chart{display:flex;flex-direction:column;gap:.55rem}
 .bar-row{display:flex;align-items:center;gap:.65rem}
@@ -464,9 +466,10 @@ select.input-field{appearance:auto;cursor:pointer}
     <button class="btn btn-outline btn-sm" onclick="showScreen('screen-start')">← Back</button>
     <h2 style="font-weight:700;font-size:1.1rem">Results & Export</h2>
     <div class="ml-auto flex gap-1">
-      <button class="btn btn-outline btn-sm" id="select-all-btn" onclick="selectAllResultSessions()">☑ Select all</button>
+      <button class="btn btn-outline btn-sm" id="results-select-all-btn" onclick="selectAllResultSessions()" style="display:none">☑ Select all</button>
       <button class="btn btn-outline btn-sm" onclick="exportSelectedJSON()">⬇ JSON</button>
       <button class="btn btn-outline btn-sm" onclick="exportSelectedCSV()">⬇ CSV</button>
+      <button class="btn btn-outline btn-sm" id="results-select-btn" onclick="toggleSelectMode()">Select</button>
     </div>
   </div>
   <div class="results-list" id="results-list"></div>
@@ -507,6 +510,7 @@ let isSpinning = false;
 let _resultsOverlayTimer = null;
 let _expandedSessions = new Set();
 let _selectedSessions = new Set();
+let _selectMode = false;
 
 // ============================================================
 // FIREBASE CONFIG
@@ -1800,7 +1804,6 @@ function renderResultsScreen() {
     const db = meta[b[0]]?.date || b[0];
     return db.localeCompare(da);
   });
-  if (_expandedSessions.size === 0 && sorted.length) _expandedSessions.add(sorted[0][0]);
   list.innerHTML = sorted.map(([code, slideData]) => {
     const m = meta[code] || {};
     const isExpanded = _expandedSessions.has(code);
@@ -1830,7 +1833,7 @@ function renderResultsScreen() {
     </div>` : '';
     return `<div class="result-session-card">
       <div class="result-session-header" onclick="toggleResultSession('${code}')">
-        <input type="checkbox" ${isSelected?'checked':''} onclick="event.stopPropagation()" onchange="toggleResultSelect('${code}',this.checked)" style="accent-color:var(--accent);width:16px;height:16px;flex-shrink:0;cursor:pointer">
+        <input type="checkbox" class="result-session-checkbox" data-code="${code}" ${isSelected?'checked':''} onclick="event.stopPropagation()" onchange="toggleResultSelect('${code}',this.checked)" style="accent-color:var(--accent);width:16px;height:16px;flex-shrink:0;cursor:pointer">
         <div style="flex:1;min-width:0">
           <div style="font-size:.98rem;font-weight:700;margin-bottom:.15rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
           <div style="font-size:.75rem;color:var(--text3)">${metaLine}</div>
@@ -1845,6 +1848,7 @@ function renderResultsScreen() {
       <div class="result-session-body${isExpanded?' open':''}">${cards}${lbHtml}</div>
     </div>`;
   }).join('') + `<div style="text-align:center;padding:2rem 0 1rem;border-top:1px solid var(--border);margin-top:.5rem"><button onclick="clearAllResults()" style="background:none;border:none;color:var(--text3);font-size:.78rem;cursor:pointer;font-family:inherit;text-decoration:underline;text-underline-offset:3px;opacity:.6;transition:opacity .15s" onmouseover="this.style.opacity=1;this.style.color='var(--accent5)'" onmouseout="this.style.opacity='.6';this.style.color='var(--text3)'">Delete all results</button></div>`;
+  list.classList.toggle('select-mode', _selectMode);
 }
 
 function toggleResultSession(code) {
@@ -1854,17 +1858,36 @@ function toggleResultSession(code) {
 
 function toggleResultSelect(code, checked) {
   if (checked) _selectedSessions.add(code); else _selectedSessions.delete(code);
-  const r = getResults();
-  const total = new Set(Object.keys(r).map(k => k.split('_')[0])).size;
-  const btn = document.getElementById('select-all-btn');
+  const total = new Set(Object.keys(getResults()).map(k => k.split('_')[0])).size;
+  const btn = document.getElementById('results-select-all-btn');
   if (btn) btn.textContent = _selectedSessions.size === total ? '☑ Deselect all' : '☑ Select all';
 }
 
 function selectAllResultSessions() {
   const codes = new Set(Object.keys(getResults()).map(k => k.split('_')[0]));
-  if (_selectedSessions.size === codes.size) _selectedSessions.clear();
-  else codes.forEach(c => _selectedSessions.add(c));
-  renderResultsScreen();
+  const allSelected = _selectedSessions.size === codes.size;
+  if (allSelected) {
+    _selectedSessions.clear();
+    document.querySelectorAll('.result-session-checkbox').forEach(cb => cb.checked = false);
+  } else {
+    codes.forEach(c => _selectedSessions.add(c));
+    document.querySelectorAll('.result-session-checkbox').forEach(cb => cb.checked = true);
+  }
+  const btn = document.getElementById('results-select-all-btn');
+  if (btn) btn.textContent = allSelected ? '☑ Select all' : '☑ Deselect all';
+}
+
+function toggleSelectMode() {
+  _selectMode = !_selectMode;
+  if (!_selectMode) {
+    _selectedSessions.clear();
+    document.querySelectorAll('.result-session-checkbox').forEach(cb => cb.checked = false);
+  }
+  document.getElementById('results-list')?.classList.toggle('select-mode', _selectMode);
+  const btn = document.getElementById('results-select-btn');
+  if (btn) btn.textContent = _selectMode ? '✕ Done' : 'Select';
+  const allBtn = document.getElementById('results-select-all-btn');
+  if (allBtn) allBtn.style.display = _selectMode ? '' : 'none';
 }
 
 function renderSimpleResult(answers) {
