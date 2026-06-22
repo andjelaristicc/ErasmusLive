@@ -671,7 +671,7 @@ function initSessionsSync() {
     const list = Object.values(snap.val() || {}).sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
     localStorage.setItem(SAVED_SESSIONS_KEY, JSON.stringify(list));
     if (document.getElementById('screen-sessions')?.classList.contains('active')) renderSessionsScreen();
-  });
+  }, () => {});
 }
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
