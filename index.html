@@ -124,6 +124,14 @@ select.input-field{appearance:auto;cursor:pointer}
 .results-header{padding:.9rem 1.5rem;background:rgba(255,255,255,.04);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
 .results-list{padding:1.5rem;overflow-y:auto;flex:1}
 .result-card{background:rgba(255,255,255,.04);border-radius:var(--radius2);padding:1.25rem;margin-bottom:1.25rem;border:1px solid var(--border)}
+.result-session-card{border:1px solid var(--border);border-radius:var(--radius2);margin-bottom:.75rem;overflow:hidden}
+.result-session-header{display:flex;align-items:center;gap:.9rem;padding:1rem 1.25rem;cursor:pointer;transition:background .15s;user-select:none}
+.result-session-header:hover{background:rgba(255,255,255,.05)}
+.result-session-actions{display:flex;gap:.35rem;flex-shrink:0}
+.result-session-chevron{font-size:.65rem;color:var(--text3);transition:transform .25s;flex-shrink:0;margin-left:.15rem}
+.result-session-chevron.open{transform:rotate(180deg)}
+.result-session-body{padding:1.25rem;border-top:1px solid var(--border);display:none}
+.result-session-body.open{display:block}
 
 .bar-chart{display:flex;flex-direction:column;gap:.55rem}
 .bar-row{display:flex;align-items:center;gap:.65rem}
@@ -456,8 +464,9 @@ select.input-field{appearance:auto;cursor:pointer}
     <button class="btn btn-outline btn-sm" onclick="showScreen('screen-start')">← Back</button>
     <h2 style="font-weight:700;font-size:1.1rem">Results & Export</h2>
     <div class="ml-auto flex gap-1">
-      <button class="btn btn-outline btn-sm" onclick="exportJSON()">⬇ JSON</button>
-      <button class="btn btn-outline btn-sm" onclick="exportCSV()">⬇ CSV</button>
+      <button class="btn btn-outline btn-sm" id="select-all-btn" onclick="selectAllResultSessions()">☑ Select all</button>
+      <button class="btn btn-outline btn-sm" onclick="exportSelectedJSON()">⬇ JSON</button>
+      <button class="btn btn-outline btn-sm" onclick="exportSelectedCSV()">⬇ CSV</button>
     </div>
   </div>
   <div class="results-list" id="results-list"></div>
@@ -496,6 +505,8 @@ let fbListeners = [];
 let spinAngle = 0;
 let isSpinning = false;
 let _resultsOverlayTimer = null;
+let _expandedSessions = new Set();
+let _selectedSessions = new Set();
 
 // ============================================================
 // FIREBASE CONFIG
@@ -1772,6 +1783,7 @@ function showScorePopup(pts, total) {
 function renderResultsScreen() {
   const r = getResults();
   const meta = getSessionsMeta();
+  const sc = getScores();
   const list = document.getElementById('results-list');
   const sessions = {};
   Object.entries(r).forEach(([k, v]) => {
@@ -1783,16 +1795,22 @@ function renderResultsScreen() {
     list.innerHTML = `<div style="text-align:center;padding:3rem;color:var(--text3)"><div style="font-size:3rem;margin-bottom:1rem">📭</div><div>No results saved yet</div></div>`;
     return;
   }
-  const dangerZone = `<div style="text-align:center;padding:2rem 0 1rem;border-top:1px solid var(--border);margin-top:1.5rem"><button onclick="clearAllResults()" style="background:none;border:none;color:var(--text3);font-size:.78rem;cursor:pointer;font-family:inherit;text-decoration:underline;text-underline-offset:3px;opacity:.6;transition:opacity .15s" onmouseover="this.style.opacity=1;this.style.color='var(--accent5)'" onmouseout="this.style.opacity='.6';this.style.color='var(--text3)'">Delete all results</button></div>`;
-  list.innerHTML = Object.entries(sessions).sort((a,b) => {
+  const sorted = Object.entries(sessions).sort((a,b) => {
     const da = meta[a[0]]?.date || a[0];
     const db = meta[b[0]]?.date || b[0];
     return db.localeCompare(da);
-  }).map(([code, slideData]) => {
+  });
+  if (_expandedSessions.size === 0 && sorted.length) _expandedSessions.add(sorted[0][0]);
+  list.innerHTML = sorted.map(([code, slideData]) => {
     const m = meta[code] || {};
-    const nameLabel = m.name ? `<div style="font-size:1.05rem;font-weight:700;color:var(--text);margin-bottom:.2rem">${m.name}</div>` : '';
-    const deleteBtn = `<button onclick="deleteSessionResults('${code}')" style="background:none;border:none;color:var(--text3);font-size:.72rem;cursor:pointer;font-family:inherit;text-decoration:underline;text-underline-offset:2px;opacity:.5;padding:0;margin-left:.6rem" onmouseover="this.style.opacity=1;this.style.color='var(--accent5)'" onmouseout="this.style.opacity='.5';this.style.color='var(--text3)'">Delete</button>`;
-    const dateLabel = m.date ? `<div style="font-size:.78rem;color:var(--text3);margin-bottom:.75rem">${new Date(m.date).toLocaleDateString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric'})} · Code: ${code}${deleteBtn}</div>` : `<div style="font-size:.78rem;color:var(--text3);margin-bottom:.75rem">Code: ${code}${deleteBtn}</div>`;
+    const isExpanded = _expandedSessions.has(code);
+    const isSelected = _selectedSessions.has(code);
+    const name = m.name || 'Unnamed Session';
+    const date = m.date ? new Date(m.date).toLocaleDateString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric'}) : '';
+    const allAnswers = Object.values(slideData).flat();
+    const participants = new Set(allAnswers.map(a => a.name).filter(Boolean)).size;
+    const slideCount = Object.keys(slideData).length;
+    const metaLine = [date, `${slideCount} slide${slideCount!==1?'s':''}`, participants ? `${participants} participant${participants!==1?'s':''}` : ''].filter(Boolean).join(' · ');
     const cards = Object.entries(slideData).sort((a,b) => parseInt(a[0])-parseInt(b[0])).map(([idx, answers]) => {
       const n = answers.length;
       const names = [...new Set(answers.map(a => a.name).filter(Boolean))];
@@ -1804,15 +1822,49 @@ function renderResultsScreen() {
         ${renderSimpleResult(answers)}
       </div>`;
     }).join('');
-    const sc = getScores();
     const sessionScores = sc[code] || {};
     const topScores = Object.entries(sessionScores).sort((a,b)=>b[1]-a[1]).slice(0,5);
     const lbHtml = topScores.length ? `<div style="margin-top:.75rem;padding:.75rem;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border)">
       <div style="font-size:.75rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.5rem">🏆 Top Scores</div>
       ${topScores.map(([n,s],i)=>`<div style="display:flex;justify-content:space-between;font-size:.85rem;padding:.2rem 0"><span>${['🥇','🥈','🥉'][i]||'·'} ${n}</span><span style="color:var(--accent2);font-weight:700">${s} pts</span></div>`).join('')}
     </div>` : '';
-    return `<div style="margin-bottom:2rem">${nameLabel}${dateLabel}${cards}${lbHtml}</div>`;
-  }).join('') + dangerZone;
+    return `<div class="result-session-card">
+      <div class="result-session-header" onclick="toggleResultSession('${code}')">
+        <input type="checkbox" ${isSelected?'checked':''} onclick="event.stopPropagation()" onchange="toggleResultSelect('${code}',this.checked)" style="accent-color:var(--accent);width:16px;height:16px;flex-shrink:0;cursor:pointer">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.98rem;font-weight:700;margin-bottom:.15rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
+          <div style="font-size:.75rem;color:var(--text3)">${metaLine}</div>
+        </div>
+        <div class="result-session-actions" onclick="event.stopPropagation()">
+          <button class="btn btn-outline btn-sm" onclick="exportSessionCSV('${code}')">⬇ CSV</button>
+          <button class="btn btn-outline btn-sm" onclick="exportSessionJSON('${code}')">⬇ JSON</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteSessionResults('${code}')">🗑</button>
+        </div>
+        <span class="result-session-chevron${isExpanded?' open':''}">▼</span>
+      </div>
+      <div class="result-session-body${isExpanded?' open':''}">${cards}${lbHtml}</div>
+    </div>`;
+  }).join('') + `<div style="text-align:center;padding:2rem 0 1rem;border-top:1px solid var(--border);margin-top:.5rem"><button onclick="clearAllResults()" style="background:none;border:none;color:var(--text3);font-size:.78rem;cursor:pointer;font-family:inherit;text-decoration:underline;text-underline-offset:3px;opacity:.6;transition:opacity .15s" onmouseover="this.style.opacity=1;this.style.color='var(--accent5)'" onmouseout="this.style.opacity='.6';this.style.color='var(--text3)'">Delete all results</button></div>`;
+}
+
+function toggleResultSession(code) {
+  if (_expandedSessions.has(code)) _expandedSessions.delete(code); else _expandedSessions.add(code);
+  renderResultsScreen();
+}
+
+function toggleResultSelect(code, checked) {
+  if (checked) _selectedSessions.add(code); else _selectedSessions.delete(code);
+  const r = getResults();
+  const total = new Set(Object.keys(r).map(k => k.split('_')[0])).size;
+  const btn = document.getElementById('select-all-btn');
+  if (btn) btn.textContent = _selectedSessions.size === total ? '☑ Deselect all' : '☑ Select all';
+}
+
+function selectAllResultSessions() {
+  const codes = new Set(Object.keys(getResults()).map(k => k.split('_')[0]));
+  if (_selectedSessions.size === codes.size) _selectedSessions.clear();
+  else codes.forEach(c => _selectedSessions.add(c));
+  renderResultsScreen();
 }
 
 function renderSimpleResult(answers) {
@@ -1827,15 +1879,11 @@ function renderSimpleResult(answers) {
   return `<div class="bar-chart">${sorted.map(([v,n],i)=>`<div class="bar-row"><div class="bar-label">${v}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(n/mx*100)}%;background:${colors[i%colors.length]}">${n}</div></div><div class="bar-count">${n}</div></div>`).join('')}</div>`;
 }
 
-function exportJSON() {
-  const data = { exported:new Date().toISOString(), platform:'ErasmusLive', results:getResults(), scores:getScores() };
-  download('erasmuslive-results.json', JSON.stringify(data, null, 2), 'application/json');
-}
-function exportCSV() {
+function buildCSV(codes) {
   const r = getResults();
   const meta = getSessionsMeta();
   let csv = 'SessionCode,SessionName,Date,Slide,Type,Question,Name,Answer,Points,Timestamp\n';
-  Object.entries(r).forEach(([k, arr]) => {
+  Object.entries(r).filter(([k]) => !codes || codes.has(k.split('_')[0])).forEach(([k, arr]) => {
     const [code, idx] = k.split('_');
     const m = meta[code] || {};
     const sessionName = (m.name || '').replace(/"/g,'""');
@@ -1844,7 +1892,35 @@ function exportCSV() {
       csv += `"${code}","${sessionName}","${sessionDate}","${parseInt(idx)+1}","${a.slideType||''}","${(a.question||'').replace(/"/g,'""')}","${(a.name||'').replace(/"/g,'""')}","${(a.value||'').replace(/"/g,'""')}","${a.points||0}","${new Date(a.ts).toLocaleString()}"\n`;
     });
   });
-  download('erasmuslive-results.csv', csv, 'text/csv');
+  return csv;
+}
+function buildJSON(codes) {
+  const r = getResults();
+  const sc = getScores();
+  const filtered = {};
+  Object.entries(r).filter(([k]) => !codes || codes.has(k.split('_')[0])).forEach(([k,v]) => filtered[k] = v);
+  const filteredScores = {};
+  if (codes) codes.forEach(c => { if (sc[c]) filteredScores[c] = sc[c]; });
+  else Object.assign(filteredScores, sc);
+  return { exported:new Date().toISOString(), platform:'ErasmusLive', results:filtered, scores:filteredScores };
+}
+function exportSelectedCSV() {
+  const codes = _selectedSessions.size > 0 ? _selectedSessions : null;
+  download('erasmuslive-results.csv', buildCSV(codes), 'text/csv');
+}
+function exportSelectedJSON() {
+  const codes = _selectedSessions.size > 0 ? _selectedSessions : null;
+  download('erasmuslive-results.json', JSON.stringify(buildJSON(codes), null, 2), 'application/json');
+}
+function exportSessionCSV(code) {
+  const m = getSessionsMeta()[code] || {};
+  const slug = m.name ? m.name.replace(/[^a-z0-9]/gi,'_').toLowerCase() : code;
+  download(`erasmuslive-${slug}.csv`, buildCSV(new Set([code])), 'text/csv');
+}
+function exportSessionJSON(code) {
+  const m = getSessionsMeta()[code] || {};
+  const slug = m.name ? m.name.replace(/[^a-z0-9]/gi,'_').toLowerCase() : code;
+  download(`erasmuslive-${slug}.json`, JSON.stringify(buildJSON(new Set([code])), null, 2), 'application/json');
 }
 function download(filename, content, type) {
   const blob = new Blob([content], { type });
