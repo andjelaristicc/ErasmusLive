@@ -658,7 +658,7 @@ function renderSessionsScreen() {
       <div class="session-card-actions">
         <button class="btn btn-outline btn-sm" onclick="openSession('${s.id}')">✏️ Edit</button>
         <button class="btn btn-sm" onclick="presentSessionById('${s.id}')" ${!s.slides.length ? 'disabled title="Add slides first"' : ''}>▶ Present</button>
-        <button class="btn btn-outline btn-sm" onclick="duplicateSession('${s.id}')">⧉ Copy</button>
+        <button class="btn btn-outline btn-sm" onclick="duplicateSession('${s.id}')">⧉ Duplicate</button>
         <button class="btn btn-danger btn-sm" onclick="deleteSession('${s.id}')">🗑</button>
       </div>
     </div>`;
