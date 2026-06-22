@@ -225,9 +225,6 @@ select.input-field{appearance:auto;cursor:pointer}
 .lb-box{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius2);padding:2rem;max-width:480px;width:100%;max-height:80vh;overflow-y:auto}
 .lb-box h2{font-size:1.4rem;margin-bottom:1.25rem;text-align:center}
 
-.sync-badge{display:inline-flex;align-items:center;gap:.35rem;padding:.3rem .8rem;border-radius:20px;font-size:.75rem;font-weight:700;cursor:pointer;border:1px solid var(--border2);color:var(--text3);background:rgba(255,255,255,.04);transition:all .2s;white-space:nowrap;font-family:inherit}
-.sync-badge:hover{border-color:var(--accent2);color:var(--text2)}
-.sync-badge.live{background:rgba(34,211,161,.1);border-color:var(--accent3);color:var(--accent3)}
 
 .waiting-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem;gap:.75rem;color:var(--text2);text-align:center;flex:1}
 .waiting-state .big-icon{font-size:4rem;margin-bottom:.5rem}
@@ -303,9 +300,7 @@ select.input-field{appearance:auto;cursor:pointer}
       <p>View saved answers & export for your report</p>
     </div>
   </div>
-  <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;justify-content:center">
-    <button class="sync-badge" id="sync-badge" onclick="showFirebaseSetup()">💾 Demo mode — tap to enable live sync</button>
-  </div>
+
 </div>
 
 <!-- BUILDER -->
@@ -475,7 +470,6 @@ select.input-field{appearance:auto;cursor:pointer}
 const RESULTS_KEY        = 'erasmuslive_results';
 const ACTIVE_KEY         = 'erasmuslive_active';
 const SCORES_KEY         = 'erasmuslive_scores';
-const FB_CONFIG_KEY      = 'erasmuslive_fb_config';
 const BUILDER_KEY        = 'erasmuslive_builder';
 const SESSIONS_META_KEY  = 'erasmuslive_sessions_meta';
 const SAVED_SESSIONS_KEY = 'erasmuslive_saved_sessions';
@@ -519,19 +513,13 @@ const FIREBASE_CONFIG = {
 // FIREBASE — dynamic load + init
 // ============================================================
 (async function initFB() {
-  const cfg = FIREBASE_CONFIG || getSavedFBConfig();
-  if (!cfg) return;
+  if (!FIREBASE_CONFIG) return;
   try {
     await loadFirebaseSDK();
-    if (!window.firebase.apps.length) window.firebase.initializeApp(cfg);
+    if (!window.firebase.apps.length) window.firebase.initializeApp(FIREBASE_CONFIG);
     db = window.firebase.database();
-    updateSyncBadge(true);
   } catch(e) { db = null; }
 })();
-
-function getSavedFBConfig() {
-  try { return JSON.parse(localStorage.getItem(FB_CONFIG_KEY) || 'null'); } catch { return null; }
-}
 
 function loadFirebaseSDK() {
   return new Promise((resolve, reject) => {
@@ -551,17 +539,6 @@ function loadFirebaseSDK() {
   });
 }
 
-function updateSyncBadge(live) {
-  const badge = document.getElementById('sync-badge');
-  if (!badge) return;
-  if (live) {
-    badge.textContent = '🔴 Live sync on — click to manage';
-    badge.classList.add('live');
-  } else {
-    badge.textContent = '💾 Demo mode — tap to enable live sync';
-    badge.classList.remove('live');
-  }
-}
 
 function setupFirebaseListeners(code) {
   cleanupFirebaseListeners();
@@ -610,63 +587,6 @@ function cleanupFirebaseListeners() {
   fbListeners = [];
 }
 
-// ============================================================
-// FIREBASE SETUP UI
-// ============================================================
-function showFirebaseSetup() {
-  const cfg = getSavedFBConfig();
-  const placeholder = `{
-  "apiKey": "YOUR_API_KEY",
-  "authDomain": "YOUR_PROJECT.firebaseapp.com",
-  "databaseURL": "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
-  "projectId": "YOUR_PROJECT"
-}`;
-  showModal(`
-    <h2>Enable Live Sync</h2>
-    <p>Connect a free Firebase Realtime Database so participants on different devices sync in real time.</p>
-    <ol style="font-size:.85rem;color:var(--text2);margin:.75rem 0 1rem;padding-left:1.25rem;line-height:1.8">
-      <li>Go to <a href="https://console.firebase.google.com" target="_blank" style="color:var(--accent2)">console.firebase.google.com</a></li>
-      <li>Create a project → Add a web app → copy the config</li>
-      <li>Enable <strong>Realtime Database</strong> → Start in <em>test mode</em></li>
-      <li>Paste the config JSON below</li>
-    </ol>
-    <div class="form-group">
-      <label>Firebase config (JSON)</label>
-      <textarea class="text-response" id="fb-cfg-inp" style="min-height:160px;font-family:monospace;font-size:.8rem">${cfg ? JSON.stringify(cfg,null,2) : placeholder}</textarea>
-    </div>
-    <div class="modal-actions">
-      ${cfg ? '<button class="btn btn-danger btn-sm" onclick="disconnectFirebase()">Disconnect</button>' : ''}
-      <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancel</button>
-      <button class="btn" onclick="connectFirebase()">Connect →</button>
-    </div>
-  `);
-}
-
-async function connectFirebase() {
-  const input = (document.getElementById('fb-cfg-inp') || {}).value || '';
-  try {
-    const cfg = JSON.parse(input.trim());
-    if (!cfg.databaseURL) { alert('Missing databaseURL. Enable Realtime Database in Firebase console first.'); return; }
-    localStorage.setItem(FB_CONFIG_KEY, JSON.stringify(cfg));
-    await loadFirebaseSDK();
-    try { if (window.firebase.apps.length) await window.firebase.app().delete(); } catch {}
-    window.firebase.initializeApp(cfg);
-    db = window.firebase.database();
-    updateSyncBadge(true);
-    closeModal();
-    alert('✅ Live sync enabled! All devices visiting the same URL will now stay in sync.');
-  } catch(e) {
-    alert('Could not connect: ' + e.message);
-  }
-}
-
-function disconnectFirebase() {
-  localStorage.removeItem(FB_CONFIG_KEY);
-  cleanupFirebaseListeners();
-  db = null;
-  updateSyncBadge(false);
-  closeModal();
-}
 
 // ============================================================
 // STORAGE HELPERS
