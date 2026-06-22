@@ -343,6 +343,10 @@ select.input-field{appearance:auto;cursor:pointer}
       <div style="margin-bottom:1.25rem;padding:1rem 1.25rem;background:rgba(255,255,255,.04);border-radius:var(--radius);border:1px solid var(--border)">
         <label style="display:block;font-size:.75rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:.5rem">Session Name <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3)">(optional — shown in Results for easy identification)</span></label>
         <input class="input-field" id="session-name-input" placeholder="e.g. Romania Exchange – Day 3 Evening Reflection" style="margin:0" oninput="onSessionNameInput(this.value)">
+        <label style="display:flex;align-items:center;gap:.5rem;margin-top:.65rem;cursor:pointer;user-select:none">
+          <input type="checkbox" id="anon-toggle" style="accent-color:var(--accent);width:15px;height:15px" onchange="saveBuilder()">
+          <span style="font-size:.82rem;color:var(--text2)">Anonymous responses — hide participant names</span>
+        </label>
       </div>
       <div id="builder-slides">
         <div style="text-align:center;padding:3rem;color:var(--text3)">
@@ -682,6 +686,8 @@ function openSession(id) {
   if (nameInput) nameInput.value = session.name;
   const titleEl = document.getElementById('builder-title');
   if (titleEl) titleEl.textContent = session.name || 'Session Editor';
+  const anonToggle = document.getElementById('anon-toggle');
+  if (anonToggle) anonToggle.checked = session.anonymous || false;
   const ind = document.getElementById('save-indicator');
   if (ind) { ind.textContent = 'All changes saved'; ind.style.color = 'var(--text3)'; ind.style.opacity = '1'; }
   renderBuilderSlides();
@@ -823,6 +829,7 @@ function saveBuilder() {
       sessions[idx].updatedAt = new Date().toISOString();
       const nameVal = document.getElementById('session-name-input')?.value.trim();
       if (nameVal) sessions[idx].name = nameVal;
+      sessions[idx].anonymous = document.getElementById('anon-toggle')?.checked || false;
       saveSessions(sessions);
     }
   }
@@ -994,7 +1001,8 @@ function startPresentation() {
   spinAngle = 0;
   const sessionName = (document.getElementById('session-name-input')?.value || '').trim();
   saveSessionMeta(appState.sessionCode, sessionName, appState.editingSessionId);
-  const active = { code:appState.sessionCode, slides:appState.session, currentSlide:0, acceptingAnswers:true, ts:Date.now() };
+  const isAnon = document.getElementById('anon-toggle')?.checked || false;
+  const active = { code:appState.sessionCode, slides:appState.session, currentSlide:0, acceptingAnswers:true, ts:Date.now(), anonymous:isAnon };
   setActiveSession(active);
   const sc = getScores();
   sc[appState.sessionCode] = {};
@@ -1708,7 +1716,7 @@ function submitAnswer(value) {
   const ts = Date.now();
 
   const answer = {
-    name: appState.participantName,
+    name: active.anonymous ? 'Anonymous' : appState.participantName,
     value: String(value).trim(),
     question: slide.question || '',
     ts,
@@ -1779,7 +1787,8 @@ function renderResultsScreen() {
   }).map(([code, slideData]) => {
     const m = meta[code] || {};
     const nameLabel = m.name ? `<div style="font-size:1.05rem;font-weight:700;color:var(--text);margin-bottom:.2rem">${m.name}</div>` : '';
-    const dateLabel = m.date ? `<div style="font-size:.78rem;color:var(--text3);margin-bottom:.75rem">${new Date(m.date).toLocaleDateString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric'})} · Code: ${code}</div>` : `<div style="font-size:.78rem;color:var(--text3);margin-bottom:.75rem">Code: ${code}</div>`;
+    const deleteBtn = `<button onclick="deleteSessionResults('${code}')" style="background:none;border:none;color:var(--text3);font-size:.72rem;cursor:pointer;font-family:inherit;text-decoration:underline;text-underline-offset:2px;opacity:.5;padding:0;margin-left:.6rem" onmouseover="this.style.opacity=1;this.style.color='var(--accent5)'" onmouseout="this.style.opacity='.5';this.style.color='var(--text3)'">Delete</button>`;
+    const dateLabel = m.date ? `<div style="font-size:.78rem;color:var(--text3);margin-bottom:.75rem">${new Date(m.date).toLocaleDateString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric'})} · Code: ${code}${deleteBtn}</div>` : `<div style="font-size:.78rem;color:var(--text3);margin-bottom:.75rem">Code: ${code}${deleteBtn}</div>`;
     const cards = Object.entries(slideData).sort((a,b) => parseInt(a[0])-parseInt(b[0])).map(([idx, answers]) => {
       const n = answers.length;
       const names = [...new Set(answers.map(a => a.name).filter(Boolean))];
@@ -1839,6 +1848,16 @@ function download(filename, content, type) {
   const a = document.createElement('a');
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
+}
+function deleteSessionResults(code) {
+  if (!confirm('Delete results for this session? This cannot be undone.')) return;
+  const r = getResults();
+  Object.keys(r).forEach(k => { if (k.startsWith(code + '_')) delete r[k]; });
+  saveResults(r);
+  const sc = getScores();
+  delete sc[code];
+  saveScores(sc);
+  renderResultsScreen();
 }
 function clearAllResults() {
   if (confirm('Delete ALL saved results? This cannot be undone.')) {
