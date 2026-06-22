@@ -706,7 +706,7 @@ function renderSessionsScreen() {
       return sum + names.size;
     }, 0);
     const metaLine = [
-      `${s.slides.length} slide${s.slides.length !== 1 ? 's' : ''}`,
+      `${s.slides?.length || 0} slide${(s.slides?.length || 0) !== 1 ? 's' : ''}`,
       runCount ? `${runCount} run${runCount !== 1 ? 's' : ''}` : 'never presented',
       responseCount ? `${responseCount} total participant${responseCount !== 1 ? 's' : ''}` : '',
       `edited ${date}`,
@@ -718,7 +718,7 @@ function renderSessionsScreen() {
       </div>
       <div class="session-card-actions">
         <button class="btn btn-outline btn-sm" onclick="openSession('${s.id}')">✏️ Edit</button>
-        <button class="btn btn-sm" onclick="presentSessionById('${s.id}')" ${!s.slides.length ? 'disabled title="Add slides first"' : ''}>▶ Present</button>
+        <button class="btn btn-sm" onclick="presentSessionById('${s.id}')" ${!s.slides?.length ? 'disabled title="Add slides first"' : ''}>▶ Present</button>
         <button class="btn btn-outline btn-sm" onclick="duplicateSession('${s.id}')">⧉ Duplicate</button>
         <button class="btn btn-danger btn-sm" onclick="deleteSession('${s.id}')">🗑</button>
       </div>
