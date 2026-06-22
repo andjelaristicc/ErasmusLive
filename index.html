@@ -1532,6 +1532,10 @@ function syncParticipantView() {
   const myAnswers = (r[k]||[]).filter(a => a.name === appState.participantName);
   const alreadyAnswered = myAnswers.length > 0;
 
+  // Skip re-render while user is actively typing — avoids dismissing the mobile keyboard
+  const focused = document.activeElement;
+  if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA') && view.contains(focused) && active.acceptingAnswers && !alreadyAnswered) return;
+
   if (!active.acceptingAnswers) {
     let extra = '';
     if (active.timerDone && (slide.type==='speed_quiz'||slide.type==='quiz'||slide.type==='true_false') && alreadyAnswered) {
