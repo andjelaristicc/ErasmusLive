@@ -732,12 +732,29 @@ function renderSessionsScreen() {
 }
 
 function createNewSession() {
-  const name = prompt('Name this session:', 'New Session');
-  if (name === null) return;
+  showModal(`
+    <h2 style="font-size:1.15rem;font-weight:700;margin-bottom:1rem">New Session</h2>
+    <div class="form-group">
+      <label>Session name</label>
+      <input class="input-field" id="new-session-name" placeholder="e.g. Romania Exchange – Day 3" maxlength="80" autofocus>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="confirmNewSession()">Create →</button>
+    </div>
+  `);
+  setTimeout(() => document.getElementById('new-session-name')?.focus(), 50);
+  document.getElementById('new-session-name')?.addEventListener('keydown', e => { if (e.key === 'Enter') confirmNewSession(); });
+}
+
+function confirmNewSession() {
+  const input = document.getElementById('new-session-name');
+  const name = input ? input.value.trim() : '';
+  closeModal();
   const id = genId();
   const now = new Date().toISOString();
   const sessions = getSavedSessions();
-  sessions.unshift({ id, name: name.trim() || 'Untitled Session', slides: [], createdAt: now, updatedAt: now });
+  sessions.unshift({ id, name: name || 'Untitled Session', slides: [], createdAt: now, updatedAt: now });
   saveSessions(sessions);
   openSession(id);
 }
