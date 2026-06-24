@@ -632,7 +632,12 @@ function saveSessionMeta(code, name, sessionId) {
 // ============================================================
 // SESSIONS LIBRARY
 // ============================================================
-function getSavedSessions() { try { return JSON.parse(localStorage.getItem(SAVED_SESSIONS_KEY) || '[]'); } catch { return []; } }
+function getSavedSessions() {
+  try {
+    const list = JSON.parse(localStorage.getItem(SAVED_SESSIONS_KEY) || '[]');
+    return list.map(s => ({ ...s, slides: Array.isArray(s.slides) ? s.slides : [] }));
+  } catch { return []; }
+}
 function saveSessions(list) {
   localStorage.setItem(SAVED_SESSIONS_KEY, JSON.stringify(list));
   if (db) {
