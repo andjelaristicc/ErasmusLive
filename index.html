@@ -537,8 +537,8 @@ const FIREBASE_CONFIG = {
     await loadFirebaseSDK();
     if (!window.firebase.apps.length) window.firebase.initializeApp(FIREBASE_CONFIG);
     db = window.firebase.database();
-    initSessionsSync();
-  } catch(e) { db = null; }
+  } catch(e) { db = null; return; }
+  initSessionsSync();
 })();
 
 function loadFirebaseSDK() {
@@ -638,12 +638,14 @@ function getSavedSessions() {
     return list.map(s => ({ ...s, slides: Array.isArray(s.slides) ? s.slides : [] }));
   } catch { return []; }
 }
+let _saveSessionsTimer = null;
 function saveSessions(list) {
   localStorage.setItem(SAVED_SESSIONS_KEY, JSON.stringify(list));
   if (db) {
-    const obj = {};
-    list.forEach(s => obj[s.id] = s);
-    db.ref('library/sessions').set(obj).catch(() => {});
+    clearTimeout(_saveSessionsTimer);
+    _saveSessionsTimer = setTimeout(() => {
+      list.forEach(s => db.ref('library/sessions/' + s.id).set(s).catch(() => {}));
+    }, 500);
   }
 }
 
@@ -673,7 +675,9 @@ function initSessionsSync() {
   // Real-time listener — keeps all devices in sync
   ref.on('value', snap => {
     if (!snap.exists()) return;
-    const list = Object.values(snap.val() || {}).sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    const list = Object.values(snap.val() || {})
+      .map(s => ({ ...s, slides: Array.isArray(s.slides) ? s.slides : [] }))
+      .sort((a,b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
     localStorage.setItem(SAVED_SESSIONS_KEY, JSON.stringify(list));
     if (document.getElementById('screen-sessions')?.classList.contains('active')) renderSessionsScreen();
   }, () => {});
@@ -801,7 +805,9 @@ function duplicateSession(id) {
 
 function deleteSession(id) {
   if (!confirm('Delete this session? Past results in the Results tab are kept.')) return;
-  saveSessions(getSavedSessions().filter(s => s.id !== id));
+  const sessions = getSavedSessions().filter(s => s.id !== id);
+  localStorage.setItem(SAVED_SESSIONS_KEY, JSON.stringify(sessions));
+  if (db) db.ref('library/sessions/' + id).remove().catch(() => {});
   if (appState.editingSessionId === id) { appState.editingSessionId = null; }
   renderSessionsScreen();
 }
@@ -1101,7 +1107,11 @@ function endSession() {
   if (confirm('End session and return to start?')) {
     closeResultsOverlay();
     const code = appState.sessionCode;
-    if (db && code) db.ref('sessions/' + code).remove().catch(() => {});
+    if (db && code) {
+      db.ref('sessions/' + code).remove().catch(() => {});
+      db.ref('responses/' + code).remove().catch(() => {});
+      db.ref('scores/' + code).remove().catch(() => {});
+    }
     localStorage.removeItem(ACTIVE_KEY);
     cleanupFirebaseListeners();
     if (appState.speedTimerInterval) { clearInterval(appState.speedTimerInterval); appState.speedTimerInterval = null; }
@@ -1126,7 +1136,7 @@ function goToSlide(i) {
   if (appState.speedTimerInterval) { clearInterval(appState.speedTimerInterval); appState.speedTimerInterval = null; }
   appState.currentSlide = i;
   appState.acceptingAnswers = true;
-  const active = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
+  const active = getActiveSession() || {};
   active.currentSlide = i;
   active.acceptingAnswers = true;
   active.slideTs = Date.now();
@@ -1151,7 +1161,7 @@ function navigateSlide(d) {
 
 function toggleAcceptingAnswers() {
   appState.acceptingAnswers = !appState.acceptingAnswers;
-  const active = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
+  const active = getActiveSession() || {};
   active.acceptingAnswers = appState.acceptingAnswers;
   setActiveSession(active);
   document.getElementById('btn-toggle').textContent = appState.acceptingAnswers ? '⏸ Pause answers' : '▶ Resume answers';
@@ -1182,7 +1192,7 @@ function startSpeedTimer(seconds) {
       clearInterval(appState.speedTimerInterval);
       appState.speedTimerInterval = null;
       toggleAcceptingAnswers();
-      const active = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
+      const active = getActiveSession() || {};
       active.timerDone = true;
       setActiveSession(active);
       updateLiveResults();
@@ -1399,7 +1409,7 @@ function renderLiveChart(s, answers) {
   }
 
   if (s.type === 'open_ended') {
-    const bubbles = answers.slice(-8).reverse().map(a => `<div class="response-bubble"><strong style="color:var(--accent2);font-size:.78rem">${a.name||'?'}:</strong> ${a.value}</div>`).join('');
+    const bubbles = answers.slice(-8).reverse().map(a => `<div class="response-bubble"><strong style="color:var(--accent2);font-size:.78rem">${a.anonymous ? 'Anonymous' : (a.name||'?')}:</strong> ${a.value}</div>`).join('');
     return `<div class="response-bubbles">${bubbles}</div><div style="margin-top:.6rem;font-size:.78rem;color:var(--text3)">${count} response${count!==1?'s':''}</div>`;
   }
 
@@ -1817,7 +1827,8 @@ function submitAnswer(value) {
   const ts = Date.now();
 
   const answer = {
-    name: active.anonymous ? 'Anonymous' : appState.participantName,
+    name: appState.participantName,
+    anonymous: active.anonymous || false,
     value: String(value).trim(),
     question: slide.question || '',
     ts,
@@ -1825,8 +1836,8 @@ function submitAnswer(value) {
     slideType: slide.type,
   };
 
-  // Score calculation for quiz types
-  if (slide.type === 'speed_quiz' || slide.type === 'quiz' || slide.type === 'true_false') {
+  // Score calculation for quiz types — skipped in anonymous sessions
+  if (!active.anonymous && (slide.type === 'speed_quiz' || slide.type === 'quiz' || slide.type === 'true_false')) {
     const correct = slide.type === 'true_false' ? slide.correct : (slide.options||[])[slide.correct];
     if (String(value).trim() === String(correct)) {
       let pts = 1000;
@@ -1974,7 +1985,7 @@ function toggleSelectMode() {
 
 function renderSimpleResult(answers) {
   const type = answers[0]?.slideType;
-  if (type === 'open_ended') return `<div class="response-bubbles">${answers.slice(-5).reverse().map(a=>`<div class="response-bubble"><strong style="color:var(--accent2);font-size:.78rem">${a.name}:</strong> ${a.value}</div>`).join('')}</div>`;
+  if (type === 'open_ended') return `<div class="response-bubbles">${answers.slice(-5).reverse().map(a=>`<div class="response-bubble"><strong style="color:var(--accent2);font-size:.78rem">${a.anonymous ? 'Anonymous' : (a.name||'?')}:</strong> ${a.value}</div>`).join('')}</div>`;
   if (type === 'ranking') return `<div style="font-size:.85rem;color:var(--text2)">${answers.length} ranking submissions</div>`;
   const freq = {};
   answers.forEach(a => { const v = a.value||'?'; freq[v] = (freq[v]||0)+1; });
@@ -1994,7 +2005,8 @@ function buildCSV(codes) {
     const sessionName = (m.name || '').replace(/"/g,'""');
     const sessionDate = m.date ? new Date(m.date).toLocaleDateString() : '';
     arr.forEach(a => {
-      csv += `"${code}","${sessionName}","${sessionDate}","${parseInt(idx)+1}","${a.slideType||''}","${(a.question||'').replace(/"/g,'""')}","${(a.name||'').replace(/"/g,'""')}","${(a.value||'').replace(/"/g,'""')}","${a.points||0}","${new Date(a.ts).toLocaleString()}"\n`;
+      const displayName = a.anonymous ? 'Anonymous' : (a.name||'');
+      csv += `"${code}","${sessionName}","${sessionDate}","${parseInt(idx)+1}","${a.slideType||''}","${(a.question||'').replace(/"/g,'""')}","${displayName.replace(/"/g,'""')}","${(a.value||'').replace(/"/g,'""')}","${a.points||0}","${new Date(a.ts).toLocaleString()}"\n`;
     });
   });
   return csv;
@@ -2042,6 +2054,10 @@ function deleteSessionResults(code) {
   const sc = getScores();
   delete sc[code];
   saveScores(sc);
+  if (db) {
+    db.ref('responses/' + code).remove().catch(() => {});
+    db.ref('scores/' + code).remove().catch(() => {});
+  }
   renderResultsScreen();
 }
 function clearAllResults() {
