@@ -537,20 +537,35 @@ select.input-field{appearance:auto;cursor:pointer}
         <p style="font-size:.82rem;color:var(--text2);margin-bottom:.7rem">Uncheck any to exclude. Need at least 24 for a full 5×5 card.</p>
         <div class="bingo-responses" id="bingo-responses-list"></div>
         <p id="bingo-count-label" style="font-size:.78rem;margin-top:.4rem;color:var(--text3)"></p>
+
+        <div style="margin-top:.9rem;padding:.85rem;background:rgba(255,255,255,.04);border-radius:8px;border:1px solid var(--border)">
+          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none">
+            <input type="checkbox" id="bingo-split-toggle" style="accent-color:var(--accent);width:15px;height:15px" onchange="toggleSplitMode()">
+            <span style="font-size:.84rem;font-weight:600">Each response has 2 facts — split into Round 1 &amp; Round 2</span>
+          </label>
+          <div id="bingo-split-opts" style="display:none;margin-top:.75rem">
+            <p style="font-size:.8rem;color:var(--text2);margin-bottom:.5rem">How are the 2 facts separated in each response?</p>
+            <div style="display:flex;gap:.45rem;flex-wrap:wrap">
+              <button class="btn btn-sm" id="sep-nl" onclick="setSplitSep('\n')" style="font-size:.75rem">↵ New line</button>
+              <button class="btn btn-outline btn-sm" id="sep-period" onclick="setSplitSep('. ')" style="font-size:.75rem">· Period</button>
+              <button class="btn btn-outline btn-sm" id="sep-slash" onclick="setSplitSep(' / ')" style="font-size:.75rem">/ Slash</button>
+            </div>
+            <p id="bingo-split-info" style="font-size:.75rem;color:var(--text3);margin-top:.5rem"></p>
+          </div>
+        </div>
+
         <div style="margin-top:1rem;display:flex;align-items:flex-end;gap:.75rem;flex-wrap:wrap">
           <div style="flex:1;min-width:180px">
             <label style="font-size:.75rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:.35rem">Card title (center cell)</label>
             <input class="input-field" id="bingo-title-input" value="SOCIAL BINGO" style="margin:0" oninput="renderBingoPreview()">
           </div>
-          <button class="btn" onclick="generateBingoCard()">🖨️ Generate &amp; Print</button>
+          <button class="btn" id="btn-generate" onclick="generateBingoCard()">🖨️ Generate &amp; Print</button>
         </div>
       </div>
 
       <div class="bingo-step" id="bingo-step-preview" style="display:none">
         <h3>Preview <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:.78rem;color:var(--text3)">(randomised — actual print may differ)</span></h3>
-        <div class="bingo-preview-wrap">
-          <div class="bingo-preview" id="bingo-preview-grid"></div>
-        </div>
+        <div id="bingo-preview-wrap"></div>
       </div>
 
     </div>
@@ -2188,6 +2203,7 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 let _bingoRows = [];
 let _bingoHeaders = [];
 let _bingoResponses = [];
+let _splitSep = '\n';
 
 function showTemplatesScreen() {
   showScreen('screen-templates');
@@ -2282,76 +2298,143 @@ function getChecked() {
     .map(cb => _bingoResponses[parseInt(cb.dataset.i)]);
 }
 
+function splitBingoResponses(responses) {
+  const r1 = [], r2 = [];
+  for (const resp of responses) {
+    const parts = resp.split(_splitSep).map(s => s.trim()).filter(s => s.length);
+    if (parts.length >= 2) {
+      r1.push(parts[0]);
+      r2.push(parts.slice(1).join(' '));
+    } else if (parts.length === 1) {
+      r1.push(parts[0]);
+    }
+  }
+  return { r1, r2 };
+}
+
+function toggleSplitMode() {
+  const on = document.getElementById('bingo-split-toggle').checked;
+  document.getElementById('bingo-split-opts').style.display = on ? '' : 'none';
+  const btn = document.getElementById('btn-generate');
+  if (btn) btn.innerHTML = on ? '🖨️ Generate Round 1 &amp; Round 2' : '🖨️ Generate &amp; Print';
+  updateBingoCount();
+}
+
+function setSplitSep(sep) {
+  _splitSep = sep;
+  document.getElementById('sep-nl').className = 'btn btn-outline btn-sm';
+  document.getElementById('sep-period').className = 'btn btn-outline btn-sm';
+  document.getElementById('sep-slash').className = 'btn btn-outline btn-sm';
+  const id = sep === '\n' ? 'sep-nl' : sep === '. ' ? 'sep-period' : 'sep-slash';
+  document.getElementById(id).className = 'btn btn-sm';
+  updateBingoCount();
+}
+
 function updateBingoCount() {
   const n = document.querySelectorAll('.bingo-chk:checked').length;
   const el = document.getElementById('bingo-count-label');
   const ok = n >= 24;
   el.innerHTML = `<span style="color:${ok ? 'var(--accent3)' : 'var(--accent5)'}">${n} selected</span>${ok ? ' ✓ enough for a full card' : ' — need ' + (24 - n) + ' more for a full card'}`;
+
+  if (document.getElementById('bingo-split-toggle')?.checked) {
+    const { r1, r2 } = splitBingoResponses(getChecked());
+    const info = document.getElementById('bingo-split-info');
+    if (info) {
+      const c1 = r1.length >= 24, c2 = r2.length >= 24;
+      info.innerHTML = `Round 1: <span style="color:${c1 ? 'var(--accent3)' : 'var(--accent5)'}">${r1.length} facts</span> &nbsp;·&nbsp; Round 2: <span style="color:${c2 ? 'var(--accent3)' : 'var(--accent5)'}">${r2.length} facts</span>`;
+    }
+  }
   renderBingoPreview();
 }
 
-function renderBingoPreview() {
-  const responses = getChecked();
-  const grid = document.getElementById('bingo-preview-grid');
-  const wrap = document.getElementById('bingo-step-preview');
-  if (!grid) return;
-  if (!responses.length) { wrap.style.display = 'none'; return; }
-  wrap.style.display = '';
-  const title = (document.getElementById('bingo-title-input')?.value || 'SOCIAL BINGO').toUpperCase();
+function makeBingoGridHtml(responses, title) {
   const shuffled = [...responses].sort(() => Math.random() - .5).slice(0, 24);
+  while (shuffled.length < 24) shuffled.push('');
   const cells = [];
   for (let i = 0; i < 25; i++) {
-    if (i === 12) {
-      cells.push(`<div class="bp-cell free">${title}</div>`);
-    } else {
-      const t = shuffled[i < 12 ? i : i - 1] || '';
-      cells.push(`<div class="bp-cell">${t}</div>`);
-    }
+    if (i === 12) cells.push(`<div class="bp-cell free">${title}</div>`);
+    else { const t = shuffled[i < 12 ? i : i - 1] || ''; cells.push(`<div class="bp-cell">${t}</div>`); }
   }
-  grid.innerHTML = cells.join('');
+  return `<div class="bingo-preview">${cells.join('')}</div>`;
+}
+
+function renderBingoPreview() {
+  const wrap = document.getElementById('bingo-step-preview');
+  const container = document.getElementById('bingo-preview-wrap');
+  if (!container) return;
+  const baseTitle = (document.getElementById('bingo-title-input')?.value || 'SOCIAL BINGO').toUpperCase();
+  const splitMode = document.getElementById('bingo-split-toggle')?.checked;
+
+  if (splitMode) {
+    const { r1, r2 } = splitBingoResponses(getChecked());
+    if (!r1.length && !r2.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    container.innerHTML =
+      `<p style="font-size:.75rem;font-weight:700;color:var(--text3);margin-bottom:.3rem">ROUND 1</p>${makeBingoGridHtml(r1, baseTitle + ' · R1')}` +
+      `<p style="font-size:.75rem;font-weight:700;color:var(--text3);margin:.7rem 0 .3rem">ROUND 2</p>${makeBingoGridHtml(r2, baseTitle + ' · R2')}`;
+  } else {
+    const responses = getChecked();
+    if (!responses.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    container.innerHTML = makeBingoGridHtml(responses, baseTitle);
+  }
+}
+
+function makePrintTable(responses24, title) {
+  let rows = '';
+  for (let r = 0; r < 5; r++) {
+    let tds = '';
+    for (let c = 0; c < 5; c++) {
+      const idx = r * 5 + c;
+      if (idx === 12) tds += `<td class="free-cell"><div>${title}</div></td>`;
+      else tds += `<td><div>${responses24[idx < 12 ? idx : idx - 1]}</div></td>`;
+    }
+    rows += `<tr>${tds}</tr>`;
+  }
+  return `<table>${rows}</table>`;
 }
 
 function generateBingoCard() {
   const responses = getChecked();
   if (!responses.length) { alert('No responses selected.'); return; }
-  const title = (document.getElementById('bingo-title-input')?.value.trim() || 'SOCIAL BINGO').toUpperCase();
-  const shuffled = [...responses].sort(() => Math.random() - .5).slice(0, 24);
-  // Fill missing cells with empty if fewer than 24
-  while (shuffled.length < 24) shuffled.push('');
+  const baseTitle = (document.getElementById('bingo-title-input')?.value.trim() || 'SOCIAL BINGO').toUpperCase();
+  const splitMode = document.getElementById('bingo-split-toggle')?.checked;
 
-  let tableRows = '';
-  for (let r = 0; r < 5; r++) {
-    let tds = '';
-    for (let c = 0; c < 5; c++) {
-      const idx = r * 5 + c;
-      if (idx === 12) {
-        tds += `<td class="free-cell"><div>${title}</div></td>`;
-      } else {
-        const text = shuffled[idx < 12 ? idx : idx - 1];
-        tds += `<td><div>${text}</div></td>`;
-      }
-    }
-    tableRows += `<tr>${tds}</tr>`;
+  const pages = [];
+  if (splitMode) {
+    const { r1, r2 } = splitBingoResponses(responses);
+    if (!r1.length && !r2.length) { alert('Could not split responses — try a different separator.'); return; }
+    const s1 = [...r1].sort(() => Math.random() - .5).slice(0, 24);
+    const s2 = [...r2].sort(() => Math.random() - .5).slice(0, 24);
+    while (s1.length < 24) s1.push('');
+    while (s2.length < 24) s2.push('');
+    pages.push({ table: makePrintTable(s1, baseTitle + ' · ROUND 1'), title: baseTitle + ' · ROUND 1' });
+    pages.push({ table: makePrintTable(s2, baseTitle + ' · ROUND 2'), title: baseTitle + ' · ROUND 2' });
+  } else {
+    const s = [...responses].sort(() => Math.random() - .5).slice(0, 24);
+    while (s.length < 24) s.push('');
+    pages.push({ table: makePrintTable(s, baseTitle), title: baseTitle });
   }
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>
+  const pageHtml = pages.map(({ table, title }) =>
+    `<div class="card-page"><h1>${title}</h1><p class="sub">Find someone in the group who matches each square — get them to sign it!</p>${table}</div>`
+  ).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${baseTitle}</title><style>
     @page{size:A4 portrait;margin:12mm}
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Segoe UI',Arial,sans-serif;background:#fff;color:#111}
-    .wrap{display:flex;flex-direction:column;align-items:center;height:100%}
-    h1{font-size:1.7rem;font-weight:900;letter-spacing:.18em;text-transform:uppercase;margin-bottom:.2rem;text-align:center}
+    .card-page{display:flex;flex-direction:column;align-items:center;page-break-after:always}
+    .card-page:last-child{page-break-after:avoid}
+    h1{font-size:1.4rem;font-weight:900;letter-spacing:.13em;text-transform:uppercase;margin-bottom:.2rem;text-align:center}
     .sub{font-size:.8rem;color:#555;margin-bottom:.9rem;text-align:center;letter-spacing:.04em}
     table{width:100%;border-collapse:collapse;table-layout:fixed}
     td{width:20%;height:46mm;border:2px solid #111;padding:5px;text-align:center;vertical-align:middle;word-break:break-word}
     td div{font-size:.72rem;line-height:1.4;overflow:hidden}
     .free-cell{background:#1a1a2e}
-    .free-cell div{color:#fff;font-weight:900;font-size:.9rem;letter-spacing:.1em;text-transform:uppercase}
+    .free-cell div{color:#fff;font-weight:900;font-size:.82rem;letter-spacing:.08em;text-transform:uppercase}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-  </style></head><body><div class="wrap">
-    <h1>${title}</h1>
-    <p class="sub">Find someone in the group who matches each square — get them to sign it!</p>
-    <table>${tableRows}</table>
-  </div></body></html>`;
+  </style></head><body>${pageHtml}</body></html>`;
 
   const win = window.open('', '_blank');
   if (!win) { alert('Pop-up blocked. Please allow pop-ups for this site and try again.'); return; }
