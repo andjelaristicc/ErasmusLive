@@ -268,6 +268,33 @@ select.input-field{appearance:auto;cursor:pointer}
   .session-card{flex-direction:column;align-items:flex-start}
 }
 
+/* ---- TEMPLATES ---- */
+#screen-templates{flex-direction:column;background:var(--bg)}
+.templates-header{padding:.9rem 1.5rem;background:rgba(255,255,255,.04);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem}
+.templates-header h2{font-size:1.1rem;font-weight:700}
+.template-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem;padding:1.5rem}
+.template-card{background:rgba(255,255,255,.04);border:1px solid var(--border);border-top:2.5px solid var(--card-color,var(--accent));border-radius:var(--radius2);padding:1.5rem;cursor:pointer;transition:all .2s;text-align:center}
+.template-card:hover{transform:translateY(-3px);background:rgba(255,255,255,.07);box-shadow:0 8px 24px rgba(0,0,0,.3)}
+.template-card .t-icon{font-size:2rem;margin-bottom:.7rem;display:block}
+.template-card h3{font-size:.95rem;font-weight:700;margin-bottom:.3rem}
+.template-card p{color:var(--text2);font-size:.8rem;line-height:1.4}
+
+/* ---- SOCIAL BINGO ---- */
+#screen-bingo{flex-direction:column;background:var(--bg)}
+.bingo-header{padding:.9rem 1.5rem;background:rgba(255,255,255,.04);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem}
+.bingo-header h2{font-size:1.1rem;font-weight:700}
+.bingo-body{flex:1;overflow-y:auto;padding:1.5rem}
+.bingo-inner{max-width:680px;margin:0 auto}
+.bingo-step{margin-bottom:1.25rem;padding:1.25rem;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius2)}
+.bingo-step h3{font-size:.88rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text3);margin-bottom:.85rem}
+.bingo-responses{display:flex;flex-direction:column;gap:.35rem;max-height:260px;overflow-y:auto;margin-bottom:.6rem}
+.bingo-response-item{display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .6rem;background:rgba(255,255,255,.04);border-radius:6px;font-size:.82rem;line-height:1.4;cursor:pointer}
+.bingo-response-item input[type=checkbox]{margin-top:.15rem;accent-color:var(--accent);flex-shrink:0}
+.bingo-preview-wrap{margin-top:.9rem}
+.bingo-preview{display:grid;grid-template-columns:repeat(5,1fr);border:2px solid var(--border);border-radius:8px;overflow:hidden}
+.bp-cell{border:.5px solid var(--border);padding:.4rem .25rem;font-size:.6rem;text-align:center;line-height:1.3;min-height:2.8rem;display:flex;align-items:center;justify-content:center;color:var(--text2)}
+.bp-cell.free{background:var(--accent);color:#fff;font-weight:700;font-size:.62rem}
+
 /* ---- SESSIONS LIBRARY ---- */
 #screen-sessions{flex-direction:column;background:var(--bg)}
 .sessions-header{padding:.9rem 1.5rem;background:rgba(255,255,255,.04);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
@@ -308,6 +335,11 @@ select.input-field{appearance:auto;cursor:pointer}
       <div class="icon">📊</div>
       <h3>Results</h3>
       <p>View saved answers & export for your report</p>
+    </div>
+    <div class="start-card" style="--card-color:#10b981;grid-column:span 2" onclick="showTemplatesScreen()">
+      <div class="icon">🖨️</div>
+      <h3>Templates & Tools</h3>
+      <p>Social Bingo cards and printables — upload Google Forms responses, generate ready-to-print sheets</p>
     </div>
   </div>
 
@@ -457,6 +489,71 @@ select.input-field{appearance:auto;cursor:pointer}
       <button class="btn btn-outline" onclick="showScreen('screen-start')" style="width:100%;justify-content:center">← Back</button>
     </div>
     <div id="participant-question-view" class="hidden"></div>
+  </div>
+</div>
+
+<!-- TEMPLATES -->
+<div id="screen-templates" class="screen">
+  <div class="templates-header">
+    <button class="btn btn-outline btn-sm" onclick="showScreen('screen-start')">← Back</button>
+    <h2>Templates & Tools</h2>
+  </div>
+  <div class="template-cards">
+    <div class="template-card" style="--card-color:#10b981" onclick="showBingoScreen()">
+      <div class="t-icon">🎱</div>
+      <h3>Social Bingo</h3>
+      <p>Upload Google Forms responses → generate a printable bingo card in seconds</p>
+    </div>
+  </div>
+</div>
+
+<!-- SOCIAL BINGO -->
+<div id="screen-bingo" class="screen">
+  <div class="bingo-header">
+    <button class="btn btn-outline btn-sm" onclick="showScreen('screen-templates')">← Templates</button>
+    <h2>Social Bingo</h2>
+  </div>
+  <div class="bingo-body">
+    <div class="bingo-inner">
+
+      <div class="bingo-step">
+        <h3>1 · Upload Google Forms responses</h3>
+        <p style="font-size:.82rem;color:var(--text2);margin-bottom:.9rem">In Google Sheets: <strong>File → Download → Comma-separated values (.csv)</strong></p>
+        <label class="btn btn-outline" style="cursor:pointer;display:inline-flex;gap:.4rem">
+          📂 Choose CSV file
+          <input type="file" id="bingo-csv-input" accept=".csv,.txt" style="display:none" onchange="handleBingoCSV(this)">
+        </label>
+        <span id="bingo-filename" style="margin-left:.75rem;font-size:.82rem;color:var(--text2)"></span>
+      </div>
+
+      <div class="bingo-step" id="bingo-step-2" style="display:none">
+        <h3>2 · Which column has the responses?</h3>
+        <select class="input-field" id="bingo-col-select" onchange="loadBingoColumn()" style="margin-bottom:.5rem;margin-top:0"></select>
+        <p id="bingo-col-hint" style="font-size:.78rem;color:var(--text3)"></p>
+      </div>
+
+      <div class="bingo-step" id="bingo-step-3" style="display:none">
+        <h3>3 · Review &amp; configure</h3>
+        <p style="font-size:.82rem;color:var(--text2);margin-bottom:.7rem">Uncheck any to exclude. Need at least 24 for a full 5×5 card.</p>
+        <div class="bingo-responses" id="bingo-responses-list"></div>
+        <p id="bingo-count-label" style="font-size:.78rem;margin-top:.4rem;color:var(--text3)"></p>
+        <div style="margin-top:1rem;display:flex;align-items:flex-end;gap:.75rem;flex-wrap:wrap">
+          <div style="flex:1;min-width:180px">
+            <label style="font-size:.75rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:.35rem">Card title (center cell)</label>
+            <input class="input-field" id="bingo-title-input" value="SOCIAL BINGO" style="margin:0" oninput="renderBingoPreview()">
+          </div>
+          <button class="btn" onclick="generateBingoCard()">🖨️ Generate &amp; Print</button>
+        </div>
+      </div>
+
+      <div class="bingo-step" id="bingo-step-preview" style="display:none">
+        <h3>Preview <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:.78rem;color:var(--text3)">(randomised — actual print may differ)</span></h3>
+        <div class="bingo-preview-wrap">
+          <div class="bingo-preview" id="bingo-preview-grid"></div>
+        </div>
+      </div>
+
+    </div>
   </div>
 </div>
 
@@ -2085,6 +2182,170 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 
 // ============================================================
 // URL AUTO-JOIN
+// ============================================================
+// SOCIAL BINGO
+// ============================================================
+let _bingoRows = [];
+let _bingoHeaders = [];
+let _bingoResponses = [];
+
+function showTemplatesScreen() {
+  showScreen('screen-templates');
+}
+
+function showBingoScreen() {
+  _bingoRows = [];
+  _bingoHeaders = [];
+  _bingoResponses = [];
+  const fi = document.getElementById('bingo-csv-input');
+  if (fi) fi.value = '';
+  document.getElementById('bingo-filename').textContent = '';
+  document.getElementById('bingo-step-2').style.display = 'none';
+  document.getElementById('bingo-step-3').style.display = 'none';
+  document.getElementById('bingo-step-preview').style.display = 'none';
+  showScreen('screen-bingo');
+}
+
+function parseCsv(text) {
+  const rows = [];
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const row = [];
+    let cur = '', inQuote = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuote = !inQuote;
+      } else if (ch === ',' && !inQuote) {
+        row.push(cur.trim()); cur = '';
+      } else { cur += ch; }
+    }
+    row.push(cur.trim());
+    rows.push(row);
+  }
+  return rows;
+}
+
+function handleBingoCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById('bingo-filename').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const rows = parseCsv(e.target.result);
+    if (rows.length < 2) { alert('CSV appears empty or has only one row.'); return; }
+    _bingoRows = rows;
+    _bingoHeaders = rows[0];
+    const sel = document.getElementById('bingo-col-select');
+    sel.innerHTML = _bingoHeaders.map((h, i) => `<option value="${i}">${h || 'Column ' + (i + 1)}</option>`).join('');
+    // Auto-pick last column — Google Forms puts Timestamp first, question last
+    sel.value = String(_bingoHeaders.length - 1);
+    document.getElementById('bingo-step-2').style.display = '';
+    loadBingoColumn();
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function loadBingoColumn() {
+  const colIdx = parseInt(document.getElementById('bingo-col-select').value);
+  _bingoResponses = _bingoRows.slice(1)
+    .map(row => (row[colIdx] || '').trim())
+    .filter(v => v.length > 0);
+  const list = document.getElementById('bingo-responses-list');
+  list.innerHTML = _bingoResponses.map((r, i) =>
+    `<label class="bingo-response-item"><input type="checkbox" class="bingo-chk" data-i="${i}" checked onchange="updateBingoCount()"><span>${r}</span></label>`
+  ).join('');
+  document.getElementById('bingo-col-hint').textContent = _bingoResponses.length + ' non-empty responses found';
+  document.getElementById('bingo-step-3').style.display = '';
+  updateBingoCount();
+}
+
+function getChecked() {
+  return [...document.querySelectorAll('.bingo-chk:checked')]
+    .map(cb => _bingoResponses[parseInt(cb.dataset.i)]);
+}
+
+function updateBingoCount() {
+  const n = document.querySelectorAll('.bingo-chk:checked').length;
+  const el = document.getElementById('bingo-count-label');
+  const ok = n >= 24;
+  el.innerHTML = `<span style="color:${ok ? 'var(--accent3)' : 'var(--accent5)'}">${n} selected</span>${ok ? ' ✓ enough for a full card' : ' — need ' + (24 - n) + ' more for a full card'}`;
+  renderBingoPreview();
+}
+
+function renderBingoPreview() {
+  const responses = getChecked();
+  const grid = document.getElementById('bingo-preview-grid');
+  const wrap = document.getElementById('bingo-step-preview');
+  if (!grid) return;
+  if (!responses.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const title = (document.getElementById('bingo-title-input')?.value || 'SOCIAL BINGO').toUpperCase();
+  const shuffled = [...responses].sort(() => Math.random() - .5).slice(0, 24);
+  const cells = [];
+  for (let i = 0; i < 25; i++) {
+    if (i === 12) {
+      cells.push(`<div class="bp-cell free">${title}</div>`);
+    } else {
+      const t = shuffled[i < 12 ? i : i - 1] || '';
+      cells.push(`<div class="bp-cell">${t}</div>`);
+    }
+  }
+  grid.innerHTML = cells.join('');
+}
+
+function generateBingoCard() {
+  const responses = getChecked();
+  if (!responses.length) { alert('No responses selected.'); return; }
+  const title = (document.getElementById('bingo-title-input')?.value.trim() || 'SOCIAL BINGO').toUpperCase();
+  const shuffled = [...responses].sort(() => Math.random() - .5).slice(0, 24);
+  // Fill missing cells with empty if fewer than 24
+  while (shuffled.length < 24) shuffled.push('');
+
+  let tableRows = '';
+  for (let r = 0; r < 5; r++) {
+    let tds = '';
+    for (let c = 0; c < 5; c++) {
+      const idx = r * 5 + c;
+      if (idx === 12) {
+        tds += `<td class="free-cell"><div>${title}</div></td>`;
+      } else {
+        const text = shuffled[idx < 12 ? idx : idx - 1];
+        tds += `<td><div>${text}</div></td>`;
+      }
+    }
+    tableRows += `<tr>${tds}</tr>`;
+  }
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title><style>
+    @page{size:A4 portrait;margin:12mm}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',Arial,sans-serif;background:#fff;color:#111}
+    .wrap{display:flex;flex-direction:column;align-items:center;height:100%}
+    h1{font-size:1.7rem;font-weight:900;letter-spacing:.18em;text-transform:uppercase;margin-bottom:.2rem;text-align:center}
+    .sub{font-size:.8rem;color:#555;margin-bottom:.9rem;text-align:center;letter-spacing:.04em}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}
+    td{width:20%;height:46mm;border:2px solid #111;padding:5px;text-align:center;vertical-align:middle;word-break:break-word}
+    td div{font-size:.72rem;line-height:1.4;overflow:hidden}
+    .free-cell{background:#1a1a2e}
+    .free-cell div{color:#fff;font-weight:900;font-size:.9rem;letter-spacing:.1em;text-transform:uppercase}
+    @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+  </style></head><body><div class="wrap">
+    <h1>${title}</h1>
+    <p class="sub">Find someone in the group who matches each square — get them to sign it!</p>
+    <table>${tableRows}</table>
+  </div></body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { alert('Pop-up blocked. Please allow pop-ups for this site and try again.'); return; }
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 600);
+}
+
 // ============================================================
 (function () {
   const params = new URLSearchParams(window.location.search);
