@@ -2339,12 +2339,11 @@ function loadMqEntries() {
     .map(row => ({ song: (row[si] || '').trim(), movie: (row[mi] || '').trim(), name: (row[ni] || '').trim(), revealed: false }))
     .filter(e => e.song || e.movie);
   const el = document.getElementById('mq-entry-count');
-  if (el) el.textContent = _mqData.length + ' entries loaded. They\'ll be shuffled so names stay anonymous until you reveal them.';
+  if (el) el.textContent = _mqData.length + ' entries loaded in original order. Names are hidden — click to show or hide each one.';
   document.getElementById('mq-step-3').style.display = _mqData.length ? '' : 'none';
 }
 
 function startMusicQuiz() {
-  _mqData = [..._mqData].sort(() => Math.random() - .5);
   _mqData.forEach(e => e.revealed = false);
   _mqCurrent = 0;
   renderMqCard();
@@ -2386,8 +2385,8 @@ function renderMqCard() {
   if (!total) { document.getElementById('mq-card').innerHTML = '<p style="text-align:center;color:var(--text3);padding:2rem">No entries.</p>'; return; }
   const e = _mqData[_mqCurrent];
   const nameHtml = e.revealed
-    ? `<div class="mq-name-clear">${e.name || '(no name)'}</div><div style="font-size:.72rem;color:var(--accent3);margin-top:.35rem;font-weight:700">✓ Revealed</div>`
-    : `<div class="mq-name-blur" aria-hidden="true">${e.name || '???'}</div><button class="btn btn-sm" style="margin-top:.85rem" onclick="revealMqCurrent()">👁 Reveal Name</button>`;
+    ? `<div class="mq-name-clear">${e.name || '(no name)'}</div><button class="btn btn-outline btn-sm" style="margin-top:.85rem" onclick="revealMqCurrent()">🙈 Hide Name</button>`
+    : `<div class="mq-name-blur" aria-hidden="true">${e.name || '???'}</div><button class="btn btn-sm" style="margin-top:.85rem" onclick="revealMqCurrent()">👁 Show Name</button>`;
   document.getElementById('mq-card').innerHTML = `
     <div class="mq-entry-badge">Entry ${_mqCurrent + 1} of ${total}</div>
     <div class="mq-media-row">
@@ -2405,7 +2404,7 @@ function mqNav(dir) {
 }
 
 function revealMqCurrent() {
-  if (_mqData[_mqCurrent]) { _mqData[_mqCurrent].revealed = true; renderMqCard(); }
+  if (_mqData[_mqCurrent]) { _mqData[_mqCurrent].revealed = !_mqData[_mqCurrent].revealed; renderMqCard(); }
 }
 
 function revealMqAll() {
