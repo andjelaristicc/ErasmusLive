@@ -2207,24 +2207,39 @@ function showBingoScreen() {
 }
 
 function parseCsv(text) {
-  const rows = [];
-  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const row = [];
-    let cur = '', inQuote = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
-        else inQuote = !inQuote;
-      } else if (ch === ',' && !inQuote) {
-        row.push(cur.trim()); cur = '';
-      } else { cur += ch; }
-    }
-    row.push(cur.trim());
-    rows.push(row);
+  // Strip UTF-8 BOM if present
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // Auto-detect delimiter: whichever of , ; \t appears more on the first line
+  const firstLine = text.slice(0, text.indexOf('\n') > -1 ? text.indexOf('\n') : text.length);
+  const counts = { ',': 0, ';': 0, '\t': 0 };
+  let fq = false;
+  for (const ch of firstLine) {
+    if (ch === '"') fq = !fq;
+    else if (!fq && counts[ch] !== undefined) counts[ch]++;
   }
+  const delim = [',', ';', '\t'].reduce((a, b) => counts[a] >= counts[b] ? a : b);
+
+  // Parse the whole text character-by-character so quoted newlines are handled
+  const rows = [];
+  let row = [], cur = '', inQuote = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      if (inQuote && text[i + 1] === '"') { cur += '"'; i++; }
+      else inQuote = !inQuote;
+    } else if (ch === delim && !inQuote) {
+      row.push(cur.trim()); cur = '';
+    } else if (ch === '\n' && !inQuote) {
+      row.push(cur.trim());
+      if (row.some(c => c.length)) rows.push(row);
+      row = []; cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.length || row.length) { row.push(cur.trim()); if (row.some(c => c.length)) rows.push(row); }
   return rows;
 }
 
