@@ -279,6 +279,27 @@ select.input-field{appearance:auto;cursor:pointer}
 .template-card h3{font-size:.95rem;font-weight:700;margin-bottom:.3rem}
 .template-card p{color:var(--text2);font-size:.8rem;line-height:1.4}
 
+/* ---- MUSIC QUIZ ---- */
+#screen-musicquiz,#screen-musicpresenter{flex-direction:column;background:var(--bg)}
+.mq-setup-body{flex:1;overflow-y:auto;padding:1.5rem}
+.mq-setup-inner{max-width:640px;margin:0 auto}
+.mq-pres-header{padding:.75rem 1.25rem;background:rgba(255,255,255,.04);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem}
+.mq-counter{font-size:.9rem;font-weight:700;color:var(--text2)}
+.mq-pres-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;align-items:center;padding:1.5rem 1rem;gap:1rem}
+.mq-card{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:16px;padding:1.75rem;width:100%;max-width:680px}
+.mq-entry-badge{font-size:.7rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:1.1rem;text-align:center}
+.mq-media-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.25rem}
+@media(max-width:520px){.mq-media-row{grid-template-columns:1fr}}
+.mq-media-block label{font-size:.72rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:.4rem}
+.mq-iframe{width:100%;border:none;border-radius:8px;display:block;background:#000}
+.mq-fallback-btn{display:flex;align-items:center;justify-content:center;gap:.5rem;width:100%;padding:.85rem;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,.06);color:var(--text);text-decoration:none;font-size:.85rem;font-weight:600;transition:background .15s}
+.mq-fallback-btn:hover{background:rgba(255,255,255,.1)}
+.mq-name-box{text-align:center;padding:1.25rem;background:rgba(255,255,255,.04);border-radius:10px;border:1px solid var(--border)}
+.mq-name-blur{font-size:1.4rem;font-weight:800;color:var(--accent2);filter:blur(9px);user-select:none}
+.mq-name-clear{font-size:1.4rem;font-weight:800;color:var(--accent2)}
+.mq-nav-row{display:flex;align-items:center;gap:.75rem;width:100%;max-width:680px;justify-content:center}
+.mq-nav-row button{flex:1;max-width:140px}
+
 /* ---- SOCIAL BINGO ---- */
 #screen-bingo{flex-direction:column;background:var(--bg)}
 .bingo-header{padding:.9rem 1.5rem;background:rgba(255,255,255,.04);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem}
@@ -503,6 +524,75 @@ select.input-field{appearance:auto;cursor:pointer}
       <div class="t-icon">🎱</div>
       <h3>Social Bingo</h3>
       <p>Upload Google Forms responses → generate a printable bingo card in seconds</p>
+    </div>
+    <div class="template-card" style="--card-color:#f59e0b" onclick="showMusicQuizScreen()">
+      <div class="t-icon">🎵</div>
+      <h3>Music & Movie Quiz</h3>
+      <p>Play songs & trailers anonymously — group guesses, then reveal whose they are</p>
+    </div>
+  </div>
+</div>
+
+<!-- MUSIC QUIZ SETUP -->
+<div id="screen-musicquiz" class="screen">
+  <div class="bingo-header">
+    <button class="btn btn-outline btn-sm" onclick="showScreen('screen-templates')">← Templates</button>
+    <h2>Music &amp; Movie Quiz</h2>
+  </div>
+  <div class="mq-setup-body">
+    <div class="mq-setup-inner">
+      <div class="bingo-step">
+        <h3>1 · Upload Google Forms responses</h3>
+        <p style="font-size:.82rem;color:var(--text2);margin-bottom:.9rem">In Google Sheets: <strong>File → Download → CSV</strong></p>
+        <label class="btn btn-outline" style="cursor:pointer;display:inline-flex;gap:.4rem">
+          📂 Choose CSV file
+          <input type="file" id="mq-csv-input" accept=".csv,.txt" style="display:none" onchange="handleMqCSV(this)">
+        </label>
+        <span id="mq-filename" style="margin-left:.75rem;font-size:.82rem;color:var(--text2)"></span>
+      </div>
+
+      <div class="bingo-step" id="mq-step-2" style="display:none">
+        <h3>2 · Map columns</h3>
+        <p style="font-size:.82rem;color:var(--text2);margin-bottom:.85rem">We auto-detected these — adjust if needed.</p>
+        <div style="display:flex;flex-direction:column;gap:.65rem">
+          <div>
+            <label style="font-size:.75rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:.3rem">🎵 Favorite Song (Spotify link)</label>
+            <select class="input-field" id="mq-col-song" onchange="loadMqEntries()" style="margin:0"></select>
+          </div>
+          <div>
+            <label style="font-size:.75rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:.3rem">🎬 Favorite Movie (YouTube link)</label>
+            <select class="input-field" id="mq-col-movie" onchange="loadMqEntries()" style="margin:0"></select>
+          </div>
+          <div>
+            <label style="font-size:.75rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:.3rem">👤 Participant Name</label>
+            <select class="input-field" id="mq-col-name" onchange="loadMqEntries()" style="margin:0"></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="bingo-step" id="mq-step-3" style="display:none">
+        <h3>3 · Ready</h3>
+        <p id="mq-entry-count" style="font-size:.88rem;color:var(--text2);margin-bottom:1rem"></p>
+        <button class="btn" onclick="startMusicQuiz()">🎵 Start Quiz →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MUSIC QUIZ PRESENTER -->
+<div id="screen-musicpresenter" class="screen">
+  <div class="mq-pres-header">
+    <button class="btn btn-outline btn-sm" onclick="showScreen('screen-musicquiz')">← Setup</button>
+    <span class="mq-counter" id="mq-counter"></span>
+    <div class="ml-auto">
+      <button class="btn btn-outline btn-sm" onclick="revealMqAll()">👁 Reveal All</button>
+    </div>
+  </div>
+  <div class="mq-pres-body">
+    <div class="mq-card" id="mq-card"></div>
+    <div class="mq-nav-row">
+      <button class="btn btn-outline" id="mq-btn-prev" onclick="mqNav(-1)">← Prev</button>
+      <button class="btn" id="mq-btn-next" onclick="mqNav(1)">Next →</button>
     </div>
   </div>
 </div>
@@ -2197,6 +2287,133 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 
 // ============================================================
 // URL AUTO-JOIN
+// ============================================================
+// MUSIC & MOVIE QUIZ
+// ============================================================
+let _mqData = [];
+let _mqCurrent = 0;
+let _mqCsvRows = [];
+let _mqHeaders = [];
+
+function showMusicQuizScreen() {
+  _mqData = []; _mqCurrent = 0; _mqCsvRows = []; _mqHeaders = [];
+  const fi = document.getElementById('mq-csv-input');
+  if (fi) fi.value = '';
+  document.getElementById('mq-filename').textContent = '';
+  document.getElementById('mq-step-2').style.display = 'none';
+  document.getElementById('mq-step-3').style.display = 'none';
+  showScreen('screen-musicquiz');
+}
+
+function handleMqCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById('mq-filename').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const rows = parseCsv(e.target.result);
+    if (rows.length < 2) { alert('CSV appears empty.'); return; }
+    _mqCsvRows = rows;
+    _mqHeaders = rows[0];
+    const lower = _mqHeaders.map(h => h.toLowerCase());
+    const songIdx = lower.findIndex(h => h.includes('song') || h.includes('spotify') || h.includes('music'));
+    const movieIdx = lower.findIndex(h => h.includes('movie') || h.includes('film') || h.includes('youtube') || h.includes('trailer'));
+    const nameIdx = lower.findIndex(h => h.includes('name') || h.includes('ime') || h.includes('naziv'));
+    const makeOpts = sel => _mqHeaders.map((h, i) =>
+      `<option value="${i}"${i === sel ? ' selected' : ''}>${h || 'Column ' + (i + 1)}</option>`
+    ).join('');
+    document.getElementById('mq-col-song').innerHTML = makeOpts(songIdx !== -1 ? songIdx : 1);
+    document.getElementById('mq-col-movie').innerHTML = makeOpts(movieIdx !== -1 ? movieIdx : Math.min(2, _mqHeaders.length - 1));
+    document.getElementById('mq-col-name').innerHTML = makeOpts(nameIdx !== -1 ? nameIdx : _mqHeaders.length - 1);
+    document.getElementById('mq-step-2').style.display = '';
+    loadMqEntries();
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function loadMqEntries() {
+  const si = parseInt(document.getElementById('mq-col-song').value);
+  const mi = parseInt(document.getElementById('mq-col-movie').value);
+  const ni = parseInt(document.getElementById('mq-col-name').value);
+  _mqData = _mqCsvRows.slice(1)
+    .map(row => ({ song: (row[si] || '').trim(), movie: (row[mi] || '').trim(), name: (row[ni] || '').trim(), revealed: false }))
+    .filter(e => e.song || e.movie);
+  const el = document.getElementById('mq-entry-count');
+  if (el) el.textContent = _mqData.length + ' entries loaded. They\'ll be shuffled so names stay anonymous until you reveal them.';
+  document.getElementById('mq-step-3').style.display = _mqData.length ? '' : 'none';
+}
+
+function startMusicQuiz() {
+  _mqData = [..._mqData].sort(() => Math.random() - .5);
+  _mqData.forEach(e => e.revealed = false);
+  _mqCurrent = 0;
+  renderMqCard();
+  showScreen('screen-musicpresenter');
+}
+
+function toSpotifyEmbed(url) {
+  const m = url.match(/spotify\.com\/(track|album|playlist|episode)\/([^?&\s]+)/);
+  return m ? `https://open.spotify.com/embed/${m[1]}/${m[2]}?utm_source=generator` : null;
+}
+
+function toYoutubeEmbed(url) {
+  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?\s]+)/);
+  return m ? `https://www.youtube.com/embed/${m[1]}?rel=0` : null;
+}
+
+function mqMediaHtml(url, type) {
+  if (!url) return `<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:.8rem;border:1px dashed var(--border);border-radius:8px">No link provided</div>`;
+  if (type === 'song') {
+    const embed = toSpotifyEmbed(url);
+    if (embed) return `<iframe class="mq-iframe" src="${embed}" height="152" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>`;
+  }
+  if (type === 'movie') {
+    const embed = toYoutubeEmbed(url);
+    if (embed) return `<iframe class="mq-iframe" src="${embed}" height="200" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>`;
+  }
+  const icon = type === 'song' ? '🎵' : '🎬';
+  const label = type === 'song' ? 'Open Song' : 'Open Trailer';
+  return `<a href="${url}" target="_blank" rel="noopener" class="mq-fallback-btn">${icon} ${label} ↗</a>`;
+}
+
+function renderMqCard() {
+  const total = _mqData.length;
+  document.getElementById('mq-counter').textContent = total ? (_mqCurrent + 1) + ' / ' + total : '—';
+  const prev = document.getElementById('mq-btn-prev');
+  const next = document.getElementById('mq-btn-next');
+  if (prev) prev.disabled = _mqCurrent === 0;
+  if (next) next.disabled = _mqCurrent >= total - 1;
+  if (!total) { document.getElementById('mq-card').innerHTML = '<p style="text-align:center;color:var(--text3);padding:2rem">No entries.</p>'; return; }
+  const e = _mqData[_mqCurrent];
+  const nameHtml = e.revealed
+    ? `<div class="mq-name-clear">${e.name || '(no name)'}</div><div style="font-size:.72rem;color:var(--accent3);margin-top:.35rem;font-weight:700">✓ Revealed</div>`
+    : `<div class="mq-name-blur" aria-hidden="true">${e.name || '???'}</div><button class="btn btn-sm" style="margin-top:.85rem" onclick="revealMqCurrent()">👁 Reveal Name</button>`;
+  document.getElementById('mq-card').innerHTML = `
+    <div class="mq-entry-badge">Entry ${_mqCurrent + 1} of ${total}</div>
+    <div class="mq-media-row">
+      <div class="mq-media-block"><label>🎵 Favorite Song</label>${mqMediaHtml(e.song, 'song')}</div>
+      <div class="mq-media-block"><label>🎬 Favorite Movie</label>${mqMediaHtml(e.movie, 'movie')}</div>
+    </div>
+    <div class="mq-name-box">${nameHtml}</div>`;
+}
+
+function mqNav(dir) {
+  const n = _mqCurrent + dir;
+  if (n < 0 || n >= _mqData.length) return;
+  _mqCurrent = n;
+  renderMqCard();
+}
+
+function revealMqCurrent() {
+  if (_mqData[_mqCurrent]) { _mqData[_mqCurrent].revealed = true; renderMqCard(); }
+}
+
+function revealMqAll() {
+  if (!confirm('Reveal all names now?')) return;
+  _mqData.forEach(e => e.revealed = true);
+  renderMqCard();
+}
+
 // ============================================================
 // SOCIAL BINGO
 // ============================================================
