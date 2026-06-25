@@ -2362,16 +2362,17 @@ function toYoutubeEmbed(url) {
 
 function mqMediaHtml(url, type) {
   if (!url) return `<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:.8rem;border:1px dashed var(--border);border-radius:8px">No link provided</div>`;
+  const icon = type === 'song' ? '🎵' : '🎬';
+  const label = type === 'song' ? 'Open in Spotify' : 'Open in YouTube';
+  const link = `<a href="${url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:.3rem;font-size:.75rem;color:var(--text3);margin-top:.4rem;text-decoration:none" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text3)'">${icon} ${label} ↗</a>`;
   if (type === 'song') {
     const embed = toSpotifyEmbed(url);
-    if (embed) return `<iframe class="mq-iframe" src="${embed}" height="152" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>`;
+    if (embed) return `<iframe class="mq-iframe" src="${embed}" height="152" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>${link}`;
   }
   if (type === 'movie') {
     const embed = toYoutubeEmbed(url);
-    if (embed) return `<iframe class="mq-iframe" src="${embed}" height="200" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>`;
+    if (embed) return `<iframe class="mq-iframe" src="${embed}" height="200" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>${link}`;
   }
-  const icon = type === 'song' ? '🎵' : '🎬';
-  const label = type === 'song' ? 'Open Song' : 'Open Trailer';
   return `<a href="${url}" target="_blank" rel="noopener" class="mq-fallback-btn">${icon} ${label} ↗</a>`;
 }
 
