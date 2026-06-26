@@ -3164,11 +3164,13 @@ function makeBingoGridHtml(responses, title) {
   const cols = 5;
   const rows = Math.ceil(responses.length / cols);
   const total = rows * cols;
-  const shuffled = [...responses].sort(() => Math.random() - .5);
-  const needed = total - shuffled.length;
-  for (let i = 0; i < needed; i++) shuffled.push(responses[Math.floor(Math.random() * responses.length)]);
-  shuffled.sort(() => Math.random() - .5);
-  const cells = shuffled.map(t => `<div class="bp-cell">${t}</div>`);
+  const items = [...responses].sort(() => Math.random() - .5);
+  const needed = total - items.length;
+  for (let i = 0; i < needed; i++) items.push(null); // null = placeholder
+  items.sort(() => Math.random() - .5);
+  const cells = items.map(t => t === null
+    ? `<div class="bp-cell free">${title}</div>`
+    : `<div class="bp-cell">${t}</div>`);
   return `<div class="bingo-preview" style="grid-template-columns:repeat(${cols},1fr)">${cells.join('')}</div>`;
 }
 
@@ -3198,15 +3200,20 @@ function makePrintTable(facts, title) {
   const cols = 5;
   const numRows = Math.ceil(facts.length / cols);
   const total = numRows * cols;
-  const padded = [...facts];
-  const needed = total - padded.length;
-  for (let i = 0; i < needed; i++) padded.push(facts[Math.floor(Math.random() * facts.length)]);
-  padded.sort(() => Math.random() - .5);
+  const items = [...facts];
+  const needed = total - items.length;
+  for (let i = 0; i < needed; i++) items.push(null); // null = placeholder
+  items.sort(() => Math.random() - .5);
   const cellH = Math.floor(255 / numRows);
   let rows = '';
   for (let r = 0; r < numRows; r++) {
     let tds = '';
-    for (let c = 0; c < cols; c++) tds += `<td><div>${padded[r * cols + c]}</div></td>`;
+    for (let c = 0; c < cols; c++) {
+      const val = items[r * cols + c];
+      tds += val === null
+        ? `<td class="free-cell"><div>${title}</div></td>`
+        : `<td><div>${val}</div></td>`;
+    }
     rows += `<tr>${tds}</tr>`;
   }
   return `<table style="--cell-h:${cellH}mm">${rows}</table>`;
@@ -3246,6 +3253,8 @@ function generateBingoCard() {
     table{width:100%;border-collapse:collapse;table-layout:fixed}
     td{width:20%;height:var(--cell-h,46mm);border:2px solid #111;padding:4px;text-align:center;vertical-align:middle;word-break:break-word}
     td div{font-size:.68rem;line-height:1.35;overflow:hidden}
+    .free-cell{background:#1a1a2e}
+    .free-cell div{color:#fff;font-weight:900;font-size:.75rem;letter-spacing:.06em;text-transform:uppercase}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body>${pageHtml}</body></html>`;
 
