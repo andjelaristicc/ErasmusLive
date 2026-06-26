@@ -617,9 +617,18 @@ select.input-field{appearance:auto;cursor:pointer}
       </div>
 
       <div class="bingo-step" id="bingo-step-2" style="display:none">
-        <h3>2 · Which column has the responses?</h3>
-        <select class="input-field" id="bingo-col-select" onchange="loadBingoColumn()" style="margin-bottom:.5rem;margin-top:0"></select>
-        <p id="bingo-col-hint" style="font-size:.78rem;color:var(--text3)"></p>
+        <h3>2 · Map columns</h3>
+        <div style="display:flex;flex-direction:column;gap:.65rem">
+          <div>
+            <label style="font-size:.75rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:.3rem">Facts column</label>
+            <select class="input-field" id="bingo-col-select" onchange="loadBingoColumn()" style="margin:0"></select>
+          </div>
+          <div>
+            <label style="font-size:.75rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:.3rem">Name column <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional — for reference list)</span></label>
+            <select class="input-field" id="bingo-col-name" onchange="loadBingoColumn()" style="margin:0"></select>
+          </div>
+        </div>
+        <p id="bingo-col-hint" style="font-size:.78rem;color:var(--text3);margin-top:.5rem"></p>
       </div>
 
       <div class="bingo-step" id="bingo-step-3" style="display:none">
@@ -656,6 +665,12 @@ select.input-field{appearance:auto;cursor:pointer}
       <div class="bingo-step" id="bingo-step-preview" style="display:none">
         <h3>Preview <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:.78rem;color:var(--text3)">(randomised — actual print may differ)</span></h3>
         <div id="bingo-preview-wrap"></div>
+      </div>
+
+      <div class="bingo-step" id="bingo-step-ref" style="display:none">
+        <h3>Reference list — facts by name</h3>
+        <p style="font-size:.8rem;color:var(--text2);margin-bottom:.75rem">Use this while reading out the bingo results to know whose fact is whose.</p>
+        <div id="bingo-ref-list" style="display:flex;flex-direction:column;gap:.3rem"></div>
       </div>
 
     </div>
@@ -2420,6 +2435,7 @@ function revealMqAll() {
 let _bingoRows = [];
 let _bingoHeaders = [];
 let _bingoResponses = [];
+let _bingoData = []; // [{fact, name}] in original CSV order
 let _splitSep = '\n';
 
 function showTemplatesScreen() {
@@ -2430,12 +2446,14 @@ function showBingoScreen() {
   _bingoRows = [];
   _bingoHeaders = [];
   _bingoResponses = [];
+  _bingoData = [];
   const fi = document.getElementById('bingo-csv-input');
   if (fi) fi.value = '';
   document.getElementById('bingo-filename').textContent = '';
   document.getElementById('bingo-step-2').style.display = 'none';
   document.getElementById('bingo-step-3').style.display = 'none';
   document.getElementById('bingo-step-preview').style.display = 'none';
+  document.getElementById('bingo-step-ref').style.display = 'none';
   showScreen('screen-bingo');
 }
 
@@ -2486,10 +2504,16 @@ function handleBingoCSV(input) {
     if (rows.length < 2) { alert('CSV appears empty or has only one row.'); return; }
     _bingoRows = rows;
     _bingoHeaders = rows[0];
+    const opts = _bingoHeaders.map((h, i) => `<option value="${i}">${h || 'Column ' + (i + 1)}</option>`).join('');
     const sel = document.getElementById('bingo-col-select');
-    sel.innerHTML = _bingoHeaders.map((h, i) => `<option value="${i}">${h || 'Column ' + (i + 1)}</option>`).join('');
-    // Auto-pick last column — Google Forms puts Timestamp first, question last
+    sel.innerHTML = opts;
     sel.value = String(_bingoHeaders.length - 1);
+    const nameSel = document.getElementById('bingo-col-name');
+    nameSel.innerHTML = `<option value="-1">(none)</option>` + opts;
+    // Auto-detect name column
+    const lower = _bingoHeaders.map(h => h.toLowerCase());
+    const nameIdx = lower.findIndex(h => h.includes('name') || h.includes('ime') || h.includes('naziv'));
+    nameSel.value = nameIdx !== -1 ? String(nameIdx) : '-1';
     document.getElementById('bingo-step-2').style.display = '';
     loadBingoColumn();
   };
@@ -2498,16 +2522,49 @@ function handleBingoCSV(input) {
 
 function loadBingoColumn() {
   const colIdx = parseInt(document.getElementById('bingo-col-select').value);
-  _bingoResponses = _bingoRows.slice(1)
-    .map(row => (row[colIdx] || '').trim())
-    .filter(v => v.length > 0);
+  const nameIdx = parseInt(document.getElementById('bingo-col-name').value);
+  const hasNames = nameIdx >= 0;
+
+  _bingoData = _bingoRows.slice(1)
+    .map(row => ({ fact: (row[colIdx] || '').trim(), name: hasNames ? (row[nameIdx] || '').trim() : '' }))
+    .filter(d => d.fact.length > 0);
+  _bingoResponses = _bingoData.map(d => d.fact);
+
   const list = document.getElementById('bingo-responses-list');
-  list.innerHTML = _bingoResponses.map((r, i) =>
-    `<label class="bingo-response-item"><input type="checkbox" class="bingo-chk" data-i="${i}" checked onchange="updateBingoCount()"><span>${r}</span></label>`
+  list.innerHTML = _bingoData.map((d, i) =>
+    `<label class="bingo-response-item">
+      <input type="checkbox" class="bingo-chk" data-i="${i}" checked onchange="updateBingoCount()">
+      <span style="flex:1">${d.fact}</span>
+      ${hasNames && d.name ? `<span style="font-size:.72rem;color:var(--text3);flex-shrink:0;padding-left:.5rem;white-space:nowrap">${d.name}</span>` : ''}
+    </label>`
   ).join('');
-  document.getElementById('bingo-col-hint').textContent = _bingoResponses.length + ' non-empty responses found';
+  document.getElementById('bingo-col-hint').textContent = _bingoData.length + ' non-empty responses found';
   document.getElementById('bingo-step-3').style.display = '';
+  updateBingoRef();
   updateBingoCount();
+}
+
+function updateBingoRef() {
+  const step = document.getElementById('bingo-step-ref');
+  const container = document.getElementById('bingo-ref-list');
+  const hasNames = _bingoData.some(d => d.name);
+  if (!hasNames || !_bingoData.length) { step.style.display = 'none'; return; }
+  step.style.display = '';
+  const splitMode = document.getElementById('bingo-split-toggle')?.checked;
+  container.innerHTML = _bingoData.map((d, i) => {
+    let factHtml;
+    if (splitMode && _splitSep) {
+      const parts = d.fact.split(_splitSep).map(s => s.trim()).filter(s => s);
+      factHtml = `<span style="flex:1">R1: ${parts[0] || '—'}</span><span style="flex:1;color:var(--text2)">R2: ${parts.slice(1).join(' ') || '—'}</span>`;
+    } else {
+      factHtml = `<span style="flex:1">${d.fact}</span>`;
+    }
+    return `<div style="display:flex;align-items:baseline;gap:.75rem;padding:.4rem .5rem;border-radius:6px;background:rgba(255,255,255,.03);font-size:.82rem;line-height:1.4">
+      <span style="font-size:.7rem;font-weight:700;color:var(--text3);min-width:1.4rem;flex-shrink:0">${i + 1}.</span>
+      ${factHtml}
+      <span style="font-weight:700;color:var(--accent2);flex-shrink:0;padding-left:.25rem">${d.name}</span>
+    </div>`;
+  }).join('');
 }
 
 function getChecked() {
@@ -2535,6 +2592,7 @@ function toggleSplitMode() {
   const btn = document.getElementById('btn-generate');
   if (btn) btn.innerHTML = on ? '🖨️ Generate Round 1 &amp; Round 2' : '🖨️ Generate &amp; Print';
   updateBingoCount();
+  updateBingoRef();
 }
 
 function setSplitSep(sep) {
