@@ -311,6 +311,22 @@ select.input-field{appearance:auto;cursor:pointer}
 .bingo-responses{display:flex;flex-direction:column;gap:.35rem;max-height:260px;overflow-y:auto;margin-bottom:.6rem}
 .bingo-response-item{display:flex;align-items:flex-start;gap:.5rem;padding:.45rem .6rem;background:rgba(255,255,255,.04);border-radius:6px;font-size:.82rem;line-height:1.4;cursor:pointer}
 .bingo-response-item input[type=checkbox]{margin-top:.15rem;accent-color:var(--accent);flex-shrink:0}
+.tt-player-grid{display:grid;grid-template-columns:1fr 1fr;gap:.4rem .9rem}
+.tt-player-row{display:flex;align-items:center;gap:.4rem}
+.tt-player-num{font-size:.7rem;color:var(--text3);min-width:1.6rem;text-align:right;flex-shrink:0}
+#tt-round-tabs{display:flex;gap:.5rem;flex-wrap:wrap;padding:1rem 1rem .75rem;border-bottom:1px solid var(--border);overflow-x:auto}
+#tt-matches{display:flex;flex-direction:column;gap:.65rem;padding:1.25rem;max-width:560px;margin:0 auto}
+#tt-summary{max-width:560px;margin:0 auto;padding:0 1.25rem 2rem}
+.tt-match{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;padding:1rem;display:flex;flex-direction:column;gap:.6rem}
+.tt-match.tt-done{border-color:rgba(52,211,153,.25)}
+.tt-bye-match{background:rgba(255,255,255,.02);border:1px dashed var(--border);border-radius:8px;padding:.55rem 1rem;display:flex;align-items:center;gap:.75rem;font-size:.83rem}
+.tt-match-row{display:flex;align-items:center;gap:.75rem}
+.tt-pname{font-size:.92rem;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-pname.tt-won{color:#34d399}
+.tt-pname.tt-lost{color:var(--text3);text-decoration:line-through}
+.tt-score{width:3.2rem;text-align:center;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:.3rem .35rem;font-size:.95rem;flex-shrink:0}
+.tt-score:disabled{opacity:.5}
+.tt-vsep{font-size:.7rem;color:var(--text3);text-align:center;padding:0 .1rem}
 .bingo-preview-wrap{margin-top:.9rem}
 .bingo-preview{display:grid;grid-template-columns:repeat(5,1fr);border:2px solid var(--border);border-radius:8px;overflow:hidden}
 .bp-cell{border:.5px solid var(--border);padding:.4rem .25rem;font-size:.6rem;text-align:center;line-height:1.3;min-height:2.8rem;display:flex;align-items:center;justify-content:center;color:var(--text2)}
@@ -530,6 +546,11 @@ select.input-field{appearance:auto;cursor:pointer}
       <h3>Music & Movie Quiz</h3>
       <p>Play songs & trailers anonymously — group guesses, then reveal whose they are</p>
     </div>
+    <div class="template-card" style="--card-color:#ef4444" onclick="showTTScreen()">
+      <div class="t-icon">🏓</div>
+      <h3>Table Tennis Tournament</h3>
+      <p>32-player single elimination — enter scores, track winners, see the champion</p>
+    </div>
     <div class="template-card" style="--card-color:#a78bfa" onclick="showSnackScreen()">
       <div class="t-icon">🍬</div>
       <h3>Snack Nicknames</h3>
@@ -695,6 +716,32 @@ select.input-field{appearance:auto;cursor:pointer}
     </div>
   </div>
   <div class="results-list" id="results-list"></div>
+</div>
+
+<!-- TABLE TENNIS TOURNAMENT -->
+<div id="screen-tt" class="screen">
+  <div class="bingo-header">
+    <button class="btn btn-outline btn-sm" onclick="showScreen('screen-templates')">← Templates</button>
+    <h2>Table Tennis Tournament</h2>
+    <button class="btn btn-outline btn-sm" id="tt-reset-btn" style="display:none;margin-left:auto" onclick="resetTTSetup()">↩ Change Players</button>
+  </div>
+
+  <!-- Step 1: Player entry -->
+  <div id="tt-setup" style="max-width:640px;margin:0 auto;padding:1.5rem 1rem">
+    <div class="bingo-step" style="display:block">
+      <h3>Enter players</h3>
+      <p style="font-size:.8rem;color:var(--text2);margin-bottom:1rem">Fill in names — empty slots become byes (auto-advance). 27 players → leave last 5 empty.</p>
+      <div class="tt-player-grid" id="tt-player-inputs"></div>
+      <button class="btn" style="margin-top:1rem;width:100%" onclick="generateTTBracket()">🏓 Generate Bracket</button>
+    </div>
+  </div>
+
+  <!-- Step 2: Bracket -->
+  <div id="tt-bracket" style="display:none">
+    <div id="tt-round-tabs"></div>
+    <div id="tt-matches"></div>
+    <div id="tt-summary"></div>
+  </div>
 </div>
 
 <!-- SNACK NICKNAMES -->
@@ -2619,6 +2666,205 @@ function toggleSplitMode() {
   if (btn) btn.innerHTML = on ? '🖨️ Generate Round 1 &amp; Round 2' : '🖨️ Generate &amp; Print';
   updateBingoCount();
   updateBingoRef();
+}
+
+// ============================================================
+// TABLE TENNIS TOURNAMENT
+// ============================================================
+let _ttRounds = [];
+let _ttCurrentRound = 0;
+const TT_ROUND_NAMES = ['Round 1', 'Round of 16', 'Quarter-finals', 'Semi-finals', 'Final'];
+
+function showTTScreen() {
+  showScreen('screen-tt');
+  document.getElementById('tt-reset-btn').style.display = 'none';
+  if (!document.getElementById('tt-player-inputs').children.length) buildTTInputs();
+}
+
+function buildTTInputs() {
+  const c = document.getElementById('tt-player-inputs');
+  c.innerHTML = '';
+  for (let i = 0; i < 32; i++) {
+    const d = document.createElement('div');
+    d.className = 'tt-player-row';
+    d.innerHTML = `<span class="tt-player-num">${i+1}</span>
+      <input type="text" class="input-field" id="tt-p-${i}" placeholder="Player ${i+1}" style="margin:0;padding:.38rem .6rem;font-size:.85rem">`;
+    c.appendChild(d);
+  }
+}
+
+function resetTTSetup() {
+  _ttRounds = []; _ttCurrentRound = 0;
+  document.getElementById('tt-bracket').style.display = 'none';
+  document.getElementById('tt-setup').style.display = '';
+  document.getElementById('tt-reset-btn').style.display = 'none';
+}
+
+function generateTTBracket() {
+  const names = Array.from({length: 32}, (_, i) => (document.getElementById('tt-p-' + i)?.value || '').trim() || 'BYE');
+  if (names.every(n => n === 'BYE')) { alert('Enter at least 2 players.'); return; }
+
+  // Build Round 1 (16 matches)
+  const r1 = [];
+  for (let i = 0; i < 32; i += 2) {
+    const m = { p1: names[i], p2: names[i+1], s1: '', s2: '', winner: null };
+    if (m.p1 === 'BYE' && m.p2 === 'BYE') m.winner = '__bye__';
+    else if (m.p1 === 'BYE') m.winner = m.p2;
+    else if (m.p2 === 'BYE') m.winner = m.p1;
+    r1.push(m);
+  }
+
+  // Build empty subsequent rounds: 8, 4, 2, 1 matches
+  _ttRounds = [r1];
+  for (let size = 8; size >= 1; size = Math.floor(size / 2)) {
+    _ttRounds.push(Array.from({length: size}, () => ({ p1: null, p2: null, s1: '', s2: '', winner: null })));
+  }
+
+  // Cascade auto-advance byes through all rounds
+  for (let r = 0; r < _ttRounds.length - 1; r++) ttCascade(r);
+
+  _ttCurrentRound = 0;
+  document.getElementById('tt-setup').style.display = 'none';
+  document.getElementById('tt-bracket').style.display = '';
+  document.getElementById('tt-reset-btn').style.display = '';
+  renderTT();
+}
+
+function ttCascade(roundIdx) {
+  const next = _ttRounds[roundIdx + 1];
+  if (!next) return;
+  _ttRounds[roundIdx].forEach((m, i) => {
+    if (!m.winner) return;
+    const w = m.winner === '__bye__' ? null : m.winner;
+    const ni = Math.floor(i / 2), slot = i % 2 === 0 ? 'p1' : 'p2';
+    next[ni][slot] = w;
+    // Auto-win if both slots are resolved
+    const nm = next[ni];
+    if (!nm.winner) {
+      if (nm.p1 === null && nm.p2 !== null) { /* waiting for other slot */ }
+      else if (nm.p2 === null && nm.p1 !== null) { /* waiting */ }
+      else if (nm.p1 === null && nm.p2 === null) nm.winner = '__bye__';
+    }
+  });
+}
+
+function setTTWinner(roundIdx, matchIdx, playerNum) {
+  const m = _ttRounds[roundIdx][matchIdx];
+  m.s1 = document.getElementById(`tt-s1-${roundIdx}-${matchIdx}`)?.value || '';
+  m.s2 = document.getElementById(`tt-s2-${roundIdx}-${matchIdx}`)?.value || '';
+  m.winner = playerNum === 1 ? m.p1 : m.p2;
+  for (let r = roundIdx; r < _ttRounds.length - 1; r++) ttCascade(r);
+  // Auto-advance tab when round is complete
+  if (_ttRounds[roundIdx].every(m => m.winner) && roundIdx < TT_ROUND_NAMES.length - 1) {
+    _ttCurrentRound = roundIdx + 1;
+  }
+  renderTT();
+}
+
+function undoTTMatch(roundIdx, matchIdx) {
+  const prev = _ttRounds[roundIdx][matchIdx].winner;
+  _ttRounds[roundIdx][matchIdx].winner = null;
+  _ttRounds[roundIdx][matchIdx].s1 = '';
+  _ttRounds[roundIdx][matchIdx].s2 = '';
+  // Remove prev winner from all later rounds
+  for (let r = roundIdx + 1; r < _ttRounds.length; r++) {
+    _ttRounds[r].forEach(m => {
+      if (m.p1 === prev) { m.p1 = null; m.winner = null; m.s1 = ''; m.s2 = ''; }
+      if (m.p2 === prev) { m.p2 = null; m.winner = null; m.s1 = ''; m.s2 = ''; }
+    });
+  }
+  _ttCurrentRound = roundIdx;
+  renderTT();
+}
+
+function renderTT() {
+  // Tabs
+  const tabs = document.getElementById('tt-round-tabs');
+  tabs.innerHTML = TT_ROUND_NAMES.map((name, i) => {
+    const active = i === _ttCurrentRound;
+    const done = _ttRounds[i]?.every(m => m.winner);
+    const avail = i === 0 || _ttRounds[i-1]?.every(m => m.winner);
+    return `<button class="btn ${active ? '' : 'btn-outline'} btn-sm"
+      ${!avail ? 'disabled style="opacity:.35"' : `onclick="_ttCurrentRound=${i};renderTT()"`}
+      >${name}${done ? ' ✓' : ''}</button>`;
+  }).join('');
+
+  // Matches
+  const round = _ttRounds[_ttCurrentRound];
+  const mc = document.getElementById('tt-matches');
+  if (!round) { mc.innerHTML = ''; return; }
+
+  mc.innerHTML = `<h3 style="margin-bottom:.5rem">${TT_ROUND_NAMES[_ttCurrentRound]}</h3>` +
+    round.map((m, i) => {
+      // Skip double-bye matches
+      if (m.p1 === null && m.p2 === null && m.winner === '__bye__') return '';
+      if (m.p1 === 'BYE' && m.p2 === 'BYE') return '';
+
+      // Bye match
+      if (m.p1 === 'BYE' || m.p2 === 'BYE' || m.winner === '__bye__') {
+        const adv = m.p1 !== 'BYE' && m.p1 ? m.p1 : m.p2;
+        return `<div class="tt-bye-match">
+          <span style="font-size:.75rem;color:var(--text3)">Match ${i+1}</span>
+          <span class="tt-pname tt-won" style="flex:1">${adv || '—'}</span>
+          <span style="font-size:.72rem;color:var(--text3)">BYE — auto-advance</span>
+        </div>`;
+      }
+
+      const p1 = m.p1 || '—', p2 = m.p2 || '—';
+      const waiting = m.p1 === null || m.p2 === null;
+      const done = !!m.winner;
+      const w = m.winner;
+
+      return `<div class="tt-match ${done ? 'tt-done' : ''}">
+        <div style="font-size:.7rem;color:var(--text3);margin-bottom:.1rem">Match ${i+1}</div>
+        <div class="tt-match-row">
+          <span class="tt-pname ${w === m.p1 ? 'tt-won' : w ? 'tt-lost' : ''}">${p1}</span>
+          <input type="number" min="0" class="tt-score" id="tt-s1-${_ttCurrentRound}-${i}" value="${m.s1}" placeholder="0" ${done || waiting ? 'disabled' : ''}>
+        </div>
+        <div class="tt-vsep">vs</div>
+        <div class="tt-match-row">
+          <span class="tt-pname ${w === m.p2 ? 'tt-won' : w ? 'tt-lost' : ''}">${p2}</span>
+          <input type="number" min="0" class="tt-score" id="tt-s2-${_ttCurrentRound}-${i}" value="${m.s2}" placeholder="0" ${done || waiting ? 'disabled' : ''}>
+        </div>
+        ${done
+          ? `<div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="font-size:.8rem;color:#34d399;font-weight:700">🏆 ${w} wins</span>
+              <button class="btn btn-outline btn-sm" onclick="undoTTMatch(${_ttCurrentRound},${i})">↩ Undo</button>
+            </div>`
+          : waiting
+          ? `<p style="font-size:.78rem;color:var(--text3)">Waiting for previous round…</p>`
+          : `<div style="display:flex;gap:.5rem;flex-wrap:wrap">
+              <button class="btn btn-sm" style="flex:1" onclick="setTTWinner(${_ttCurrentRound},${i},1)">✓ ${p1} wins</button>
+              <button class="btn btn-sm" style="flex:1" onclick="setTTWinner(${_ttCurrentRound},${i},2)">✓ ${p2} wins</button>
+            </div>`
+        }
+      </div>`;
+    }).join('');
+
+  // Summary
+  const eliminated = [];
+  _ttRounds.forEach((rnd, ri) => rnd.forEach(m => {
+    if (!m.winner || m.winner === '__bye__') return;
+    const loser = m.winner === m.p1 ? m.p2 : m.p1;
+    if (loser && loser !== 'BYE') eliminated.push({ name: loser, round: TT_ROUND_NAMES[ri] });
+  }));
+
+  const champion = _ttRounds[4]?.[0]?.winner && _ttRounds[4][0].winner !== '__bye__' ? _ttRounds[4][0].winner : null;
+  const sum = document.getElementById('tt-summary');
+
+  if (!eliminated.length && !champion) { sum.innerHTML = ''; return; }
+
+  let html = '<div class="bingo-step" style="margin-top:1rem">';
+  if (champion) html += `<div style="text-align:center;padding:1.25rem;background:linear-gradient(135deg,rgba(251,191,36,.12),rgba(251,191,36,.04));border:1px solid rgba(251,191,36,.35);border-radius:12px;margin-bottom:1rem">
+    <div style="font-size:2.2rem">🏆</div>
+    <div style="font-size:1.25rem;font-weight:900;color:#fbbf24;margin:.25rem 0">${champion}</div>
+    <div style="font-size:.78rem;color:var(--text2)">Champion</div></div>`;
+  if (eliminated.length) html += `<h3 style="margin-bottom:.65rem">Out of tournament</h3>
+    <div style="display:flex;flex-direction:column;gap:.3rem">` +
+    [...eliminated].reverse().map(e => `<div style="display:flex;justify-content:space-between;font-size:.83rem;padding:.35rem .55rem;border-radius:6px;background:rgba(255,255,255,.03)">
+      <span>${e.name}</span><span style="color:var(--text3)">${e.round}</span></div>`).join('') + '</div>';
+  html += '</div>';
+  sum.innerHTML = html;
 }
 
 // ============================================================
