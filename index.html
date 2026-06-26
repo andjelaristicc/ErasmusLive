@@ -712,7 +712,7 @@ select.input-field{appearance:auto;cursor:pointer}
     </div>
     <div class="bingo-step" id="snack-preview-step" style="display:none;margin-top:1rem">
       <h3>Preview</h3>
-      <div id="snack-preview" style="background:#2d2d32;border-radius:10px;padding:1.5rem 1.75rem;margin-top:.75rem;font-family:'Segoe UI',Arial,sans-serif;color:#fff;columns:2;column-gap:2.5rem;font-size:.95rem;line-height:2"></div>
+      <div id="snack-preview" style="background:#fff;border-radius:10px;padding:1.5rem 1.75rem;margin-top:.75rem;font-family:'Segoe UI',Arial,sans-serif;color:#111;columns:2;column-gap:2.5rem;font-size:.95rem;line-height:2"></div>
       <button class="btn" style="margin-top:1rem;width:100%" onclick="printSnackList()">🖨️ Print</button>
     </div>
   </div>
@@ -2676,8 +2676,8 @@ function printSnackList() {
   if (!names.length) return;
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Snack Nicknames</title><style>
     @page{size:A4 portrait;margin:0}
-    *{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    html,body{width:100%;height:100%;background:#2d2d32 !important;color:#fff;font-family:'Segoe UI',Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{width:100%;height:100%;background:#fff;color:#111;font-family:'Segoe UI',Arial,sans-serif}
     body{padding:18mm}
     .grid{columns:2;column-gap:3.5rem;font-size:1.05rem;line-height:2.15;font-weight:400}
     .item{break-inside:avoid}
