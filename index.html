@@ -726,11 +726,29 @@ select.input-field{appearance:auto;cursor:pointer}
     <button class="btn btn-outline btn-sm" id="tt-reset-btn" style="display:none;margin-left:auto" onclick="resetTTSetup()">↩ Change Players</button>
   </div>
 
+  <!-- Continue banner -->
+  <div id="tt-continue-banner" style="display:none;max-width:640px;margin:1.25rem auto 0;padding:0 1rem">
+    <div style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.3);border-radius:10px;padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.65rem">
+      <div>
+        <div style="font-weight:700;font-size:.92rem;color:#34d399">Saved tournament found</div>
+        <div id="tt-continue-info" style="font-size:.8rem;color:var(--text2);margin-top:.15rem"></div>
+      </div>
+      <div style="display:flex;gap:.5rem;flex-shrink:0">
+        <button class="btn btn-outline btn-sm" onclick="ttClearState()">🗑 Discard</button>
+        <button class="btn btn-sm" onclick="ttContinue()">▶ Continue</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Step 1: Player entry -->
   <div id="tt-setup" style="max-width:640px;margin:0 auto;padding:1.5rem 1rem">
     <div class="bingo-step" style="display:block">
       <h3>Enter players</h3>
-      <p style="font-size:.8rem;color:var(--text2);margin-bottom:1rem">Fill in names — empty slots become byes (auto-advance). 27 players → leave last 5 empty.</p>
+      <p style="font-size:.8rem;color:var(--text2);margin-bottom:.75rem">Fill in names — empty slots become byes (auto-advance). 27 players → leave last 5 empty.</p>
+      <label class="btn btn-outline btn-sm" style="cursor:pointer;margin-bottom:.75rem;display:inline-flex;align-items:center;gap:.4rem">
+        📄 Import .txt (one name per line)
+        <input type="file" accept=".txt" style="display:none" onchange="importTTNames(event)">
+      </label>
       <div class="tt-player-grid" id="tt-player-inputs"></div>
       <div style="display:flex;gap:.6rem;margin-top:1rem">
         <button class="btn btn-outline" style="flex:1" onclick="showTTDraw()">✋ Manual Draw</button>
@@ -2687,11 +2705,79 @@ function toggleSplitMode() {
 let _ttRounds = [];
 let _ttCurrentRound = 0;
 let _ttRoundNames = ['Round 1', 'Round of 16', 'Quarter-finals', 'Semi-finals', 'Final'];
+let _ttSaveTimer = null;
+const TT_STATE_KEY = 'erasmuslive_tt';
 
 function showTTScreen() {
   showScreen('screen-tt');
-  document.getElementById('tt-reset-btn').style.display = 'none';
   if (!document.getElementById('tt-player-inputs').children.length) buildTTInputs();
+  // Try to restore saved tournament
+  const saved = ttLoadState();
+  if (saved) {
+    document.getElementById('tt-continue-banner').style.display = '';
+    const champ = saved.rounds?.[saved.rounds.length - 1]?.[0]?.winner;
+    const roundIdx = saved.currentRound || 0;
+    const roundName = (saved.roundNames || _ttRoundNames)[roundIdx] || 'Round 1';
+    document.getElementById('tt-continue-info').textContent =
+      champ && champ !== '__bye__'
+        ? `Finished — champion: ${champ}`
+        : `In progress — ${roundName}`;
+    document.getElementById('tt-reset-btn').style.display = 'none';
+  } else {
+    document.getElementById('tt-continue-banner').style.display = 'none';
+    document.getElementById('tt-reset-btn').style.display = 'none';
+  }
+}
+
+function ttSaveState() {
+  if (!_ttRounds.length) return;
+  const state = { rounds: _ttRounds, currentRound: _ttCurrentRound, roundNames: _ttRoundNames };
+  localStorage.setItem(TT_STATE_KEY, JSON.stringify(state));
+  if (db) {
+    clearTimeout(_ttSaveTimer);
+    _ttSaveTimer = setTimeout(() => db.ref('tournaments/table_tennis').set(state).catch(() => {}), 800);
+  }
+}
+
+function ttLoadState() {
+  try { const s = localStorage.getItem(TT_STATE_KEY); return s ? JSON.parse(s) : null; }
+  catch(e) { return null; }
+}
+
+function ttContinue() {
+  const state = ttLoadState();
+  if (!state) return;
+  _ttRounds = state.rounds;
+  _ttCurrentRound = state.currentRound || 0;
+  _ttRoundNames = state.roundNames || _ttRoundNames;
+  document.getElementById('tt-setup').style.display = 'none';
+  document.getElementById('tt-draw').style.display = 'none';
+  document.getElementById('tt-continue-banner').style.display = 'none';
+  document.getElementById('tt-bracket').style.display = '';
+  document.getElementById('tt-reset-btn').style.display = '';
+  renderTT();
+}
+
+function ttClearState() {
+  if (!confirm('This will delete the saved tournament permanently. Are you sure?')) return;
+  localStorage.removeItem(TT_STATE_KEY);
+  if (db) db.ref('tournaments/table_tennis').remove().catch(() => {});
+  document.getElementById('tt-continue-banner').style.display = 'none';
+}
+
+function importTTNames(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const names = ev.target.result.split(/\r?\n/).map(n => n.trim()).filter(n => n);
+    names.forEach((name, i) => {
+      const inp = document.getElementById('tt-p-' + i);
+      if (inp) inp.value = name;
+    });
+    e.target.value = '';
+  };
+  reader.readAsText(file);
 }
 
 function buildTTInputs() {
@@ -2710,6 +2796,7 @@ function resetTTSetup() {
   _ttRounds = []; _ttCurrentRound = 0;
   document.getElementById('tt-bracket').style.display = 'none';
   document.getElementById('tt-draw').style.display = 'none';
+  document.getElementById('tt-continue-banner').style.display = 'none';
   document.getElementById('tt-setup').style.display = '';
   document.getElementById('tt-reset-btn').style.display = 'none';
 }
@@ -2810,8 +2897,10 @@ function buildTTFromPairs(pairs) {
   _ttCurrentRound = 0;
   document.getElementById('tt-setup').style.display = 'none';
   document.getElementById('tt-draw').style.display = 'none';
+  document.getElementById('tt-continue-banner').style.display = 'none';
   document.getElementById('tt-bracket').style.display = '';
   document.getElementById('tt-reset-btn').style.display = '';
+  ttSaveState();
   renderTT();
 }
 
@@ -2864,6 +2953,7 @@ function setTTWinner(roundIdx, matchIdx, playerNum) {
   if (_ttRounds[roundIdx].every(m => m.winner) && roundIdx < _ttRoundNames.length - 1) {
     _ttCurrentRound = roundIdx + 1;
   }
+  ttSaveState();
   renderTT();
 }
 
@@ -2880,6 +2970,7 @@ function undoTTMatch(roundIdx, matchIdx) {
     });
   }
   _ttCurrentRound = roundIdx;
+  ttSaveState();
   renderTT();
 }
 
