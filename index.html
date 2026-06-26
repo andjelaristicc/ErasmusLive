@@ -3161,14 +3161,13 @@ function updateBingoCount() {
 }
 
 function makeBingoGridHtml(responses, title) {
-  const shuffled = [...responses].sort(() => Math.random() - .5).slice(0, 24);
-  while (shuffled.length < 24) shuffled.push('');
-  const cells = [];
-  for (let i = 0; i < 25; i++) {
-    if (i === 12) cells.push(`<div class="bp-cell free">${title}</div>`);
-    else { const t = shuffled[i < 12 ? i : i - 1] || ''; cells.push(`<div class="bp-cell">${t}</div>`); }
-  }
-  return `<div class="bingo-preview">${cells.join('')}</div>`;
+  const shuffled = [...responses].sort(() => Math.random() - .5);
+  const cols = 5;
+  const rows = Math.ceil(shuffled.length / cols);
+  const total = rows * cols;
+  while (shuffled.length < total) shuffled.push('');
+  const cells = shuffled.map(t => `<div class="bp-cell">${t}</div>`);
+  return `<div class="bingo-preview" style="grid-template-columns:repeat(${cols},1fr)">${cells.join('')}</div>`;
 }
 
 function renderBingoPreview() {
@@ -3193,18 +3192,21 @@ function renderBingoPreview() {
   }
 }
 
-function makePrintTable(responses24, title) {
+function makePrintTable(facts, title) {
+  const cols = 5;
+  const numRows = Math.ceil(facts.length / cols);
+  const total = numRows * cols;
+  const padded = [...facts];
+  while (padded.length < total) padded.push('');
+  // Cell height: fit inside A4 (273mm usable after padding), minus ~18mm for title
+  const cellH = Math.floor(255 / numRows);
   let rows = '';
-  for (let r = 0; r < 5; r++) {
+  for (let r = 0; r < numRows; r++) {
     let tds = '';
-    for (let c = 0; c < 5; c++) {
-      const idx = r * 5 + c;
-      if (idx === 12) tds += `<td class="free-cell"><div>${title}</div></td>`;
-      else tds += `<td><div>${responses24[idx < 12 ? idx : idx - 1]}</div></td>`;
-    }
+    for (let c = 0; c < cols; c++) tds += `<td><div>${padded[r * cols + c]}</div></td>`;
     rows += `<tr>${tds}</tr>`;
   }
-  return `<table>${rows}</table>`;
+  return `<table style="--cell-h:${cellH}mm">${rows}</table>`;
 }
 
 function generateBingoCard() {
@@ -3217,20 +3219,17 @@ function generateBingoCard() {
   if (splitMode) {
     const { r1, r2 } = splitBingoResponses(responses);
     if (!r1.length && !r2.length) { alert('Could not split responses — try a different separator.'); return; }
-    const s1 = [...r1].sort(() => Math.random() - .5).slice(0, 24);
-    const s2 = [...r2].sort(() => Math.random() - .5).slice(0, 24);
-    while (s1.length < 24) s1.push('');
-    while (s2.length < 24) s2.push('');
+    const s1 = [...r1].sort(() => Math.random() - .5);
+    const s2 = [...r2].sort(() => Math.random() - .5);
     pages.push({ table: makePrintTable(s1, baseTitle + ' · ROUND 1'), title: baseTitle + ' · ROUND 1' });
     pages.push({ table: makePrintTable(s2, baseTitle + ' · ROUND 2'), title: baseTitle + ' · ROUND 2' });
   } else {
-    const s = [...responses].sort(() => Math.random() - .5).slice(0, 24);
-    while (s.length < 24) s.push('');
+    const s = [...responses].sort(() => Math.random() - .5);
     pages.push({ table: makePrintTable(s, baseTitle), title: baseTitle });
   }
 
   const pageHtml = pages.map(({ table, title }) =>
-    `<div class="card-page"><h1>${title}</h1><p class="sub">Find someone in the group who matches each square — get them to sign it!</p>${table}</div>`
+    `<div class="card-page"><h1>${title}</h1>${table}</div>`
   ).join('');
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${baseTitle}</title><style>
@@ -3242,10 +3241,8 @@ function generateBingoCard() {
     h1{font-size:1.4rem;font-weight:900;letter-spacing:.13em;text-transform:uppercase;margin-bottom:.2rem;text-align:center}
     .sub{font-size:.8rem;color:#555;margin-bottom:.9rem;text-align:center;letter-spacing:.04em}
     table{width:100%;border-collapse:collapse;table-layout:fixed}
-    td{width:20%;height:46mm;border:2px solid #111;padding:5px;text-align:center;vertical-align:middle;word-break:break-word}
-    td div{font-size:.72rem;line-height:1.4;overflow:hidden}
-    .free-cell{background:#1a1a2e}
-    .free-cell div{color:#fff;font-weight:900;font-size:.82rem;letter-spacing:.08em;text-transform:uppercase}
+    td{width:20%;height:var(--cell-h,46mm);border:2px solid #111;padding:4px;text-align:center;vertical-align:middle;word-break:break-word}
+    td div{font-size:.68rem;line-height:1.35;overflow:hidden}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body>${pageHtml}</body></html>`;
 
