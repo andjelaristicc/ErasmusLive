@@ -3161,11 +3161,13 @@ function updateBingoCount() {
 }
 
 function makeBingoGridHtml(responses, title) {
-  const shuffled = [...responses].sort(() => Math.random() - .5);
   const cols = 5;
-  const rows = Math.ceil(shuffled.length / cols);
+  const rows = Math.ceil(responses.length / cols);
   const total = rows * cols;
-  while (shuffled.length < total) shuffled.push('');
+  const shuffled = [...responses].sort(() => Math.random() - .5);
+  const needed = total - shuffled.length;
+  for (let i = 0; i < needed; i++) shuffled.push(responses[Math.floor(Math.random() * responses.length)]);
+  shuffled.sort(() => Math.random() - .5);
   const cells = shuffled.map(t => `<div class="bp-cell">${t}</div>`);
   return `<div class="bingo-preview" style="grid-template-columns:repeat(${cols},1fr)">${cells.join('')}</div>`;
 }
@@ -3197,8 +3199,9 @@ function makePrintTable(facts, title) {
   const numRows = Math.ceil(facts.length / cols);
   const total = numRows * cols;
   const padded = [...facts];
-  while (padded.length < total) padded.push('');
-  // Cell height: fit inside A4 (273mm usable after padding), minus ~18mm for title
+  const needed = total - padded.length;
+  for (let i = 0; i < needed; i++) padded.push(facts[Math.floor(Math.random() * facts.length)]);
+  padded.sort(() => Math.random() - .5);
   const cellH = Math.floor(255 / numRows);
   let rows = '';
   for (let r = 0; r < numRows; r++) {
