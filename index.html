@@ -2368,6 +2368,12 @@ function renderResultsScreen() {
     if (!sessions[code]) sessions[code] = {};
     sessions[code][idx] = v;
   });
+  // Drop entries where all slide arrays are empty/bad — keep only sessions with real data
+  Object.keys(sessions).forEach(code => {
+    const hasData = Object.values(sessions[code]).some(v => Array.isArray(v) && v.length > 0);
+    if (!hasData) delete sessions[code];
+  });
+  console.log('[ErasmusLive] renderResults: sessions with data:', Object.keys(sessions));
   if (!Object.keys(sessions).length) {
     list.innerHTML = `<div style="text-align:center;padding:3rem;color:var(--text3)"><div style="font-size:3rem;margin-bottom:1rem">📭</div><div>No results saved yet</div></div>`;
     return;
@@ -2383,13 +2389,14 @@ function renderResultsScreen() {
     const isSelected = _selectedSessions.has(code);
     const name = m.name || 'Unnamed Session';
     const date = m.date ? new Date(m.date).toLocaleDateString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric'}) : '';
-    const allAnswers = Object.values(slideData).flat();
-    const participants = new Set(allAnswers.map(a => a.name).filter(Boolean)).size;
-    const slideCount = Object.keys(slideData).length;
+    const safeSlideData = Object.fromEntries(Object.entries(slideData).filter(([,v]) => Array.isArray(v) && v.length > 0));
+    const allAnswers = Object.values(safeSlideData).flat();
+    const participants = new Set(allAnswers.map(a => a?.name).filter(Boolean)).size;
+    const slideCount = Object.keys(safeSlideData).length;
     const metaLine = [date, `${slideCount} slide${slideCount!==1?'s':''}`, participants ? `${participants} participant${participants!==1?'s':''}` : ''].filter(Boolean).join(' · ');
-    const cards = Object.entries(slideData).sort((a,b) => parseInt(a[0])-parseInt(b[0])).map(([idx, answers]) => {
+    const cards = Object.entries(safeSlideData).sort((a,b) => parseInt(a[0])-parseInt(b[0])).map(([idx, answers]) => {
       const n = answers.length;
-      const names = [...new Set(answers.map(a => a.name).filter(Boolean))];
+      const names = [...new Set(answers.map(a => a?.name).filter(Boolean))];
       const questionText = answers[0]?.question || '';
       return `<div class="result-card">
         <div style="font-size:.72rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent2);margin-bottom:.25rem">Slide ${parseInt(idx)+1} · ${answers[0]?.slideType ? typeName(answers[0].slideType) : 'Question'}</div>
