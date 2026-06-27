@@ -814,6 +814,7 @@ const SCORES_KEY         = 'erasmuslive_scores';
 const BUILDER_KEY        = 'erasmuslive_builder';
 const SESSIONS_META_KEY  = 'erasmuslive_sessions_meta';
 const SAVED_SESSIONS_KEY = 'erasmuslive_saved_sessions';
+const ANSWERED_KEY       = 'erasmuslive_answered'; // device-local answered tracker
 
 // ============================================================
 // STATE
@@ -947,6 +948,13 @@ function saveResults(r) { localStorage.setItem(RESULTS_KEY, JSON.stringify(r)); 
 function getActiveSession() { try { return JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null'); } catch { return null; } }
 function getScores() { try { return JSON.parse(localStorage.getItem(SCORES_KEY) || '{}'); } catch { return {}; } }
 function saveScores(s) { localStorage.setItem(SCORES_KEY, JSON.stringify(s)); }
+// Device-local answered tracker — survives even if name matching fails
+function markAnswered(code, slideIndex) {
+  try { const a = JSON.parse(localStorage.getItem(ANSWERED_KEY)||'{}'); a[code+'_'+slideIndex]=true; localStorage.setItem(ANSWERED_KEY,JSON.stringify(a)); } catch(e){}
+}
+function hasAnsweredLocally(code, slideIndex) {
+  try { return !!(JSON.parse(localStorage.getItem(ANSWERED_KEY)||'{}')[code+'_'+slideIndex]); } catch(e){ return false; }
+}
 function getSessionsMeta() { try { return JSON.parse(localStorage.getItem(SESSIONS_META_KEY) || '{}'); } catch { return {}; } }
 function saveSessionMeta(code, name, sessionId) {
   const meta = getSessionsMeta();
@@ -2017,7 +2025,8 @@ function syncParticipantView() {
   const r = getResults();
   const k = active.code + '_' + active.currentSlide;
   const myAnswers = (r[k]||[]).filter(a => a.name === appState.participantName);
-  const alreadyAnswered = myAnswers.length > 0;
+  // Use device-local tracker as primary (survives null/empty name mismatches)
+  const alreadyAnswered = hasAnsweredLocally(active.code, active.currentSlide) || myAnswers.length > 0;
 
   // Skip re-render while user is actively typing — avoids dismissing the mobile keyboard
   const focused = document.activeElement;
@@ -2207,7 +2216,7 @@ function submitAnswer(value) {
   const ts = Date.now();
 
   const answer = {
-    name: appState.participantName,
+    name: appState.participantName || '',
     anonymous: active.anonymous || false,
     value: String(value).trim(),
     question: slide.question || '',
@@ -2237,6 +2246,7 @@ function submitAnswer(value) {
   }
 
   addResponse(active.code, active.currentSlide, answer);
+  markAnswered(active.code, active.currentSlide);
   syncParticipantView();
 }
 
