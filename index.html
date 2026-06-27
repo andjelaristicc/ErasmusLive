@@ -765,7 +765,16 @@ select.input-field{appearance:auto;cursor:pointer}
   <div id="tt-draw" style="display:none;max-width:640px;margin:0 auto;padding:0 1rem 2rem">
     <div class="bingo-step" style="display:block">
       <h3>Draw — assign matchups</h3>
-      <p style="font-size:.8rem;color:var(--text2);margin-bottom:1rem">Pick who plays who in Round 1. Leave second slot empty for a bye. Each player can appear only once.</p>
+      <p style="font-size:.8rem;color:var(--text2);margin-bottom:.75rem">Pick who plays who in Round 1. Leave second slot empty for a bye. Each player can appear only once.</p>
+      <details id="tt-draw-import-section" style="margin-bottom:.75rem;border:1px solid var(--border);border-radius:var(--radius);padding:.6rem .75rem;background:var(--bg2)">
+        <summary style="font-size:.78rem;font-weight:700;color:var(--text2);cursor:pointer;user-select:none">📋 Import matchups from text</summary>
+        <p style="font-size:.75rem;color:var(--text3);margin:.5rem 0 .4rem">One match per line: <code>Player1 vs Player2</code> or <code>Player vs BYE</code></p>
+        <textarea id="tt-draw-import" rows="6" style="width:100%;box-sizing:border-box;font-size:.76rem;font-family:monospace;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:.4rem .5rem;resize:vertical" placeholder="Nachos vs Nürnberger&#10;Galaxy vs BYE&#10;Schäufele vs Rhubarb&#10;..."></textarea>
+        <div style="display:flex;gap:.5rem;margin-top:.4rem">
+          <button class="btn btn-sm" onclick="loadTTDrawFromText()">Apply</button>
+          <button class="btn btn-outline btn-sm" onclick="exportTTDrawToText()">Copy current</button>
+        </div>
+      </details>
       <div id="tt-draw-matches" style="display:flex;flex-direction:column;gap:.4rem"></div>
       <button class="btn" style="margin-top:1rem;width:100%" onclick="confirmTTDraw()">✓ Confirm Draw &amp; Start Tournament</button>
     </div>
@@ -2991,6 +3000,43 @@ function showTTDraw() {
       highlightTTDupes();
     }
   } catch(e) {}
+}
+
+function loadTTDrawFromText() {
+  const text = (document.getElementById('tt-draw-import')?.value || '').trim();
+  if (!text) return;
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  lines.forEach((line, i) => {
+    const parts = line.split(/\s+vs\s+/i);
+    if (parts.length < 2) return;
+    const p1 = parts[0].trim(), p2 = parts[1].trim();
+    [['tt-d-p1-' + i, p1], ['tt-d-p2-' + i, p2]].forEach(([id, val]) => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      sel.value = val;
+      if (sel.value !== val) { // option not in list — add it temporarily
+        const opt = document.createElement('option');
+        opt.value = val; opt.textContent = val;
+        sel.appendChild(opt);
+        sel.value = val;
+      }
+    });
+  });
+  highlightTTDupes();
+  document.getElementById('tt-draw-import-section')?.removeAttribute('open');
+}
+
+function exportTTDrawToText() {
+  const lines = [];
+  for (let i = 0; i < 16; i++) {
+    const p1 = document.getElementById(`tt-d-p1-${i}`)?.value;
+    const p2 = document.getElementById(`tt-d-p2-${i}`)?.value;
+    if (p1 || p2) lines.push(`${p1 || 'BYE'} vs ${p2 || 'BYE'}`);
+  }
+  const text = lines.join('\n');
+  navigator.clipboard?.writeText(text).catch(() => {});
+  const ta = document.getElementById('tt-draw-import');
+  if (ta) { ta.value = text; document.getElementById('tt-draw-import-section')?.setAttribute('open', ''); }
 }
 
 function highlightTTDupes() {
