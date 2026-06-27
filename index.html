@@ -1775,15 +1775,19 @@ function renderLiveChart(s, answers) {
   if (s.type === 'word_cloud') {
     const freq = {};
     answers.forEach(a => { const w = (a.value||'').trim(); if (w) freq[w] = (freq[w]||0) + 1; });
-    const sorted = Object.entries(freq).sort((a,b) => b[1]-a[1]).slice(0, 60);
+    const sorted = Object.entries(freq).sort((a,b) => b[1]-a[1]).slice(0, 80);
     if (!sorted.length) return `<div style="color:var(--text3);font-size:.85rem;text-align:center;padding:1rem">⏳ No responses yet</div>`;
     const mx = sorted[0][1];
-    const tags = sorted.map(([w, n], i) => {
-      const em = (0.8 + (n / mx) * 2.2).toFixed(2);
-      return `<span style="display:inline-block;font-size:${em}em;color:${colors[i%colors.length]};font-weight:700;padding:.08em .22em;animation:wordPop .4s ease;line-height:1.25">${w}${n > 1 ? `<span style="font-size:.46em;opacity:.6"> ×${n}</span>` : ''}</span>`;
+    const n = sorted.length;
+    // Scale font range down as word count grows so everything fits without scrolling
+    const maxEm = n > 40 ? 1.6 : n > 20 ? 2.0 : n > 10 ? 2.6 : 3.2;
+    const minEm = n > 40 ? 0.65 : n > 20 ? 0.72 : 0.8;
+    const tags = sorted.map(([w, cnt], i) => {
+      const em = (minEm + (cnt / mx) * (maxEm - minEm)).toFixed(2);
+      return `<span style="display:inline-block;font-size:${em}em;color:${colors[i%colors.length]};font-weight:700;padding:.06em .18em;animation:wordPop .4s ease;line-height:1.2">${w}${cnt > 1 ? `<span style="font-size:.44em;opacity:.55"> ×${cnt}</span>` : ''}</span>`;
     }).join('');
-    return `<div style="display:flex;flex-wrap:wrap;gap:.1rem .45rem;justify-content:center;align-items:center;min-height:90px;padding:.5rem 0">${tags}</div>
-    <div style="font-size:.72rem;color:var(--text3);margin-top:.25rem;text-align:center">${count} response${count!==1?'s':''}</div>`;
+    return `<div style="display:flex;flex-wrap:wrap;gap:.08rem .4rem;justify-content:center;align-items:center;width:100%;padding:.4rem 0">${tags}</div>
+    <div style="font-size:.72rem;color:var(--text3);margin-top:.3rem;text-align:center">${count} response${count!==1?'s':''} · ${sorted.length} unique word${sorted.length!==1?'s':''}</div>`;
   }
 
   if (s.type === 'rating') {
