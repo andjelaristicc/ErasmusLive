@@ -951,6 +951,7 @@ function saveSessionMeta(code, name, sessionId) {
   const meta = getSessionsMeta();
   meta[code] = { name: name || '', date: new Date().toISOString(), sessionId: sessionId || null };
   localStorage.setItem(SESSIONS_META_KEY, JSON.stringify(meta));
+  if (db) db.ref('library/runs/' + code).set(meta[code]).catch(() => {});
 }
 
 // ============================================================
@@ -1201,7 +1202,7 @@ setInterval(() => {
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  if (id === 'screen-results') renderResultsScreen();
+  if (id === 'screen-results') syncResultsFromFirebase().then(() => renderResultsScreen());
 }
 function isPresenterActive() { return document.getElementById('screen-presenter').classList.contains('active'); }
 function isParticipantActive() { return document.getElementById('screen-participant').classList.contains('active'); }
@@ -1439,8 +1440,8 @@ function endSession() {
     const code = appState.sessionCode;
     if (db && code) {
       db.ref('sessions/' + code).remove().catch(() => {});
-      db.ref('responses/' + code).remove().catch(() => {});
       db.ref('scores/' + code).remove().catch(() => {});
+      // responses kept permanently in Firebase for historical access
     }
     localStorage.removeItem(ACTIVE_KEY);
     cleanupFirebaseListeners();
@@ -1676,6 +1677,17 @@ function updateLiveResults() {
 }
 
 function forceReloadResults() {
+  // Silently restore appState from localStorage if blank (e.g. after page refresh)
+  if (!appState.sessionCode) {
+    const active = getActiveSession();
+    if (active && active.code && active.slides && active.slides.length) {
+      appState.session = active.slides;
+      appState.sessionCode = active.code;
+      appState.currentSlide = active.currentSlide ?? 0;
+      appState.acceptingAnswers = active.acceptingAnswers ?? true;
+      if (db && !fbListeners.length) setupFirebaseListeners(active.code);
+    }
+  }
   const code = appState.sessionCode || getActiveSession()?.code;
   if (!db || !code) { updateLiveResults(); return; }
   db.ref('responses/' + code).once('value').then(snap => {
@@ -2244,6 +2256,48 @@ function showScorePopup(pts, total) {
 // ============================================================
 // RESULTS & EXPORT
 // ============================================================
+
+// Fetches all known session codes from Firebase (library/runs) + localStorage meta,
+// then downloads responses/{code} for each and merges into localStorage.
+async function syncResultsFromFirebase() {
+  if (!db) return;
+  try {
+    // Collect codes from both localStorage meta and Firebase library/runs
+    const localMeta = getSessionsMeta();
+    const codes = new Set(Object.keys(localMeta));
+
+    const runsSnap = await db.ref('library/runs').once('value');
+    if (runsSnap.exists()) {
+      runsSnap.forEach(child => {
+        codes.add(child.key);
+        // Also save run meta to localStorage if missing
+        if (!localMeta[child.key]) {
+          localMeta[child.key] = child.val();
+        }
+      });
+      localStorage.setItem(SESSIONS_META_KEY, JSON.stringify(localMeta));
+    }
+
+    if (!codes.size) return;
+
+    // Fetch responses for every known code in parallel
+    const r = getResults();
+    await Promise.all([...codes].map(async code => {
+      try {
+        const snap = await db.ref('responses/' + code).once('value');
+        if (!snap.exists()) return;
+        snap.forEach(sl => {
+          const slideKey = code + '_' + sl.key;
+          const answers = [];
+          sl.forEach(a => answers.push(a.val()));
+          if (answers.length) r[slideKey] = answers;
+        });
+      } catch (e) { /* skip individual code errors */ }
+    }));
+    saveResults(r);
+  } catch (e) { /* non-fatal: render with whatever is in localStorage */ }
+}
+
 function renderResultsScreen() {
   const r = getResults();
   const meta = getSessionsMeta();
