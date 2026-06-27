@@ -484,7 +484,10 @@ select.input-field{appearance:auto;cursor:pointer}
           </div>
         </div>
         <div class="results-panel" id="results-panel">
-          <h3>Live Results</h3>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+            <h3 style="margin:0">Live Results</h3>
+            <button onclick="forceReloadResults()" title="Force reload from Firebase" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text2);cursor:pointer;font-size:.85rem;padding:.2rem .45rem;line-height:1">🔄</button>
+          </div>
           <div id="live-results-content" style="color:var(--text3);font-size:.88rem">Waiting for responses...</div>
         </div>
       </div>
@@ -1181,10 +1184,16 @@ window.addEventListener('storage', () => {
   if (isParticipantActive() && appState.participantName) syncParticipantView();
 });
 
+let _pollTick = 0;
 setInterval(() => {
-  if (isPresenterActive()) { updateLiveResults(); updateParticipantCount(); }
+  _pollTick++;
+  if (isPresenterActive()) {
+    // Every 3rd tick (~3s) do a full Firebase read; other ticks use localStorage
+    if (_pollTick % 3 === 0) forceReloadResults();
+    else { updateLiveResults(); updateParticipantCount(); }
+  }
   if (isParticipantActive() && appState.participantName) syncParticipantView();
-}, 1800);
+}, 1000);
 
 // ============================================================
 // NAVIGATION
@@ -1658,11 +1667,30 @@ function spinWheel() {
 function updateLiveResults() {
   if (appState.currentSlide < 0) return;
   const s = appState.session[appState.currentSlide];
+  if (!s) return;
   const r = getResults();
   const k = appState.sessionCode + '_' + appState.currentSlide;
   const answers = r[k] || [];
   document.getElementById('live-results-content').innerHTML = renderLiveChart(s, answers);
   if (document.getElementById('results-overlay')) renderResultsOverlayContent();
+}
+
+function forceReloadResults() {
+  if (!db || !appState.sessionCode) { updateLiveResults(); return; }
+  db.ref('responses/' + appState.sessionCode).once('value').then(snap => {
+    if (snap.exists()) {
+      const r = getResults();
+      snap.forEach(sl => {
+        const slideKey = appState.sessionCode + '_' + sl.key;
+        const answers = [];
+        sl.forEach(a => answers.push(a.val()));
+        r[slideKey] = answers;
+      });
+      saveResults(r);
+    }
+    updateLiveResults();
+    updateParticipantCount();
+  }).catch(() => updateLiveResults());
 }
 
 function renderLiveChart(s, answers) {
