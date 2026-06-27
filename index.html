@@ -713,6 +713,7 @@ select.input-field{appearance:auto;cursor:pointer}
     <h2 style="font-weight:700;font-size:1.1rem">Results & Export</h2>
     <div class="ml-auto flex gap-1">
       <button class="btn btn-outline btn-sm" id="results-select-all-btn" onclick="selectAllResultSessions()" style="display:none">☑ Select all</button>
+      <button class="btn btn-outline btn-sm" onclick="syncResultsFromFirebase().then(()=>renderResultsScreen())" title="Reload all sessions from Firebase">🔄 Sync</button>
       <button class="btn btn-outline btn-sm" onclick="exportSelectedJSON()">⬇ JSON</button>
       <button class="btn btn-outline btn-sm" onclick="exportSelectedCSV()">⬇ CSV</button>
       <button class="btn btn-outline btn-sm" id="results-select-btn" onclick="toggleSelectMode()">Select</button>
@@ -2257,14 +2258,20 @@ function showScorePopup(pts, total) {
 // RESULTS & EXPORT
 // ============================================================
 
-// Scans the entire responses/ tree in Firebase — catches every session code
-// that has responses, even ones never registered in library/runs or localStorage.
+// Scans entire responses/ tree in Firebase — catches every session code with data.
 async function syncResultsFromFirebase() {
-  if (!db) return;
+  const list = document.getElementById('results-list');
+  if (list) list.innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text3)"><div style="font-size:2rem;margin-bottom:.5rem">⏳</div><div>Loading all sessions from Firebase…</div></div>';
+
+  if (!db) {
+    if (list) list.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text3)">No Firebase connection — showing local data only.</div>';
+    return;
+  }
+
   try {
     const localMeta = getSessionsMeta();
 
-    // Pull library/runs for name/date metadata
+    // Metadata from library/runs (session names + dates)
     try {
       const runsSnap = await db.ref('library/runs').once('value');
       if (runsSnap.exists()) {
@@ -2274,24 +2281,30 @@ async function syncResultsFromFirebase() {
       }
     } catch(e) {}
 
-    // Scan entire responses/ node — picks up any code with data (e.g. U13GIF)
+    // Scan entire responses/ — finds every code, including ones lost after refresh
     const responsesSnap = await db.ref('responses').once('value');
-    if (!responsesSnap.exists()) return;
-
     const r = getResults();
-    responsesSnap.forEach(codeSnap => {
-      const code = codeSnap.key;
-      if (!localMeta[code]) localMeta[code] = { name: code, date: '' };
-      codeSnap.forEach(sl => {
-        const slideKey = code + '_' + sl.key;
-        const answers = [];
-        sl.forEach(a => answers.push(a.val()));
-        if (answers.length) r[slideKey] = answers;
+
+    if (responsesSnap.exists()) {
+      responsesSnap.forEach(codeSnap => {
+        const code = codeSnap.key;
+        if (!localMeta[code]) localMeta[code] = { name: code, date: '' };
+        codeSnap.forEach(sl => {
+          const slideKey = code + '_' + sl.key;
+          const answers = [];
+          sl.forEach(a => answers.push(a.val()));
+          if (answers.length) r[slideKey] = answers;
+        });
       });
-    });
+    }
+
     localStorage.setItem(SESSIONS_META_KEY, JSON.stringify(localMeta));
     saveResults(r);
-  } catch(e) { /* non-fatal — render with whatever is already in localStorage */ }
+
+  } catch(e) {
+    console.error('[ErasmusLive] Firebase sync error:', e);
+    if (list) list.innerHTML = '<div style="text-align:center;padding:2rem;color:orange">⚠ Could not load from Firebase.<br><small style="color:var(--text3)">Check console for details. Showing local data only.</small><br><button class="btn btn-outline btn-sm" onclick="syncResultsFromFirebase().then(()=>renderResultsScreen())" style="margin-top:.75rem">↺ Retry</button></div>';
+  }
 }
 
 function renderResultsScreen() {
