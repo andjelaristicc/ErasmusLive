@@ -1179,7 +1179,15 @@ function addResponse(code, slideIndex, answer) {
   if (!r[k]) r[k] = [];
   r[k].push(answer);
   saveResults(r);
-  if (db) db.ref('responses/' + code + '/' + slideIndex).push(answer).catch(() => {});
+  if (db) db.ref('responses/' + code + '/' + slideIndex).push(answer).catch(err => {
+    console.error('[ErasmusLive] Firebase write failed:', err.message, 'answer:', JSON.stringify(answer));
+    // Show brief toast so participant knows their response didn't sync to server
+    const toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:#b91c1c;color:#fff;padding:.6rem 1.2rem;border-radius:8px;font-size:.85rem;z-index:9999;pointer-events:none';
+    toast.textContent = '⚠ Response saved locally but failed to sync. Check connection.';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
+  });
 }
 
 function addScoreFB(code, name, total) {
