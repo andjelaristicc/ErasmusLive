@@ -2859,6 +2859,7 @@ let _ttCurrentRound = 0;
 let _ttRoundNames = ['Round 1', 'Round of 16', 'Quarter-finals', 'Semi-finals', 'Final'];
 let _ttSaveTimer = null;
 const TT_STATE_KEY = 'erasmuslive_tt';
+const TT_DRAW_KEY = 'erasmuslive_tt_draw';
 
 function showTTScreen() {
   showScreen('screen-tt');
@@ -2976,6 +2977,20 @@ function showTTDraw() {
   document.getElementById('tt-setup').style.display = 'none';
   document.getElementById('tt-draw').style.display = '';
   document.getElementById('tt-reset-btn').style.display = '';
+
+  // Restore previously saved draw selections (survives crash/refresh)
+  try {
+    const saved = localStorage.getItem(TT_DRAW_KEY);
+    if (saved) {
+      JSON.parse(saved).forEach(({p1, p2}, i) => {
+        const s1 = document.getElementById(`tt-d-p1-${i}`);
+        const s2 = document.getElementById(`tt-d-p2-${i}`);
+        if (s1 && p1) s1.value = p1;
+        if (s2 && p2) s2.value = p2;
+      });
+      highlightTTDupes();
+    }
+  } catch(e) {}
 }
 
 function highlightTTDupes() {
@@ -2986,6 +3001,14 @@ function highlightTTDupes() {
     const v = el.value;
     el.style.borderColor = (v && v !== 'BYE' && counts[v] > 1) ? '#ef4444' : '';
   });
+  // Persist draw selections so they survive a page refresh
+  try {
+    const pairs = Array.from({length: 16}, (_, i) => ({
+      p1: document.getElementById(`tt-d-p1-${i}`)?.value || '',
+      p2: document.getElementById(`tt-d-p2-${i}`)?.value || ''
+    }));
+    localStorage.setItem(TT_DRAW_KEY, JSON.stringify(pairs));
+  } catch(e) {}
 }
 
 function confirmTTDraw() {
@@ -3031,14 +3054,12 @@ function buildTTFromPairs(pairs) {
     return m;
   });
 
-  // Build round structure based on actual bracket size
-  const roundNames = [];
-  let n = size;
-  while (n > 1) { roundNames.push(n); n = Math.floor(n / 2); }
-
+  // Build round structure: each subsequent round has half the matches of the previous
   _ttRounds = [r1];
-  for (let i = 1; i < roundNames.length; i++) {
-    _ttRounds.push(Array.from({length: roundNames[i] / 2}, () => ({ p1: null, p2: null, s1: '', s2: '', winner: null })));
+  let mc = size;
+  while (mc > 1) {
+    mc = Math.floor(mc / 2);
+    _ttRounds.push(Array.from({length: mc}, () => ({ p1: null, p2: null, s1: '', s2: '', winner: null })));
   }
 
   // Update round name labels to match bracket size
@@ -3058,7 +3079,7 @@ function buildTTFromPairs(pairs) {
 
 function buildTTRoundNames(bracketSize) {
   const names = [];
-  let n = bracketSize;
+  let n = bracketSize * 2; // bracketSize = match count; *2 = player slots
   while (n > 1) {
     if (n === 2) names.push('Final');
     else if (n === 4) names.push('Semi-finals');
