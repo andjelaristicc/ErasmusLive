@@ -2281,21 +2281,40 @@ async function syncResultsFromFirebase() {
       }
     } catch(e) {}
 
-    // Scan entire responses/ — finds every code, including ones lost after refresh
-    const responsesSnap = await db.ref('responses').once('value');
     const r = getResults();
 
-    if (responsesSnap.exists()) {
-      responsesSnap.forEach(codeSnap => {
-        const code = codeSnap.key;
-        if (!localMeta[code]) localMeta[code] = { name: code, date: '' };
-        codeSnap.forEach(sl => {
-          const slideKey = code + '_' + sl.key;
-          const answers = [];
-          sl.forEach(a => answers.push(a.val()));
-          if (answers.length) r[slideKey] = answers;
+    // Try bulk read of entire responses/ (requires .read:true on responses node in rules)
+    let bulkOk = false;
+    try {
+      const responsesSnap = await db.ref('responses').once('value');
+      bulkOk = true;
+      if (responsesSnap.exists()) {
+        responsesSnap.forEach(codeSnap => {
+          const code = codeSnap.key;
+          if (!localMeta[code]) localMeta[code] = { name: code, date: '' };
+          codeSnap.forEach(sl => {
+            const slideKey = code + '_' + sl.key;
+            const answers = [];
+            sl.forEach(a => answers.push(a.val()));
+            if (answers.length) r[slideKey] = answers;
+          });
         });
-      });
+      }
+    } catch(permErr) {
+      // Bulk read denied — fall back to fetching each known code individually
+      const knownCodes = new Set(Object.keys(localMeta));
+      await Promise.all([...knownCodes].map(async code => {
+        try {
+          const snap = await db.ref('responses/' + code).once('value');
+          if (!snap.exists()) return;
+          snap.forEach(sl => {
+            const slideKey = code + '_' + sl.key;
+            const answers = [];
+            sl.forEach(a => answers.push(a.val()));
+            if (answers.length) r[slideKey] = answers;
+          });
+        } catch(e) {}
+      }));
     }
 
     localStorage.setItem(SESSIONS_META_KEY, JSON.stringify(localMeta));
@@ -2303,7 +2322,6 @@ async function syncResultsFromFirebase() {
 
   } catch(e) {
     console.error('[ErasmusLive] Firebase sync error:', e);
-    if (list) list.innerHTML = '<div style="text-align:center;padding:2rem;color:orange">⚠ Could not load from Firebase.<br><small style="color:var(--text3)">Check console for details. Showing local data only.</small><br><button class="btn btn-outline btn-sm" onclick="syncResultsFromFirebase().then(()=>renderResultsScreen())" style="margin-top:.75rem">↺ Retry</button></div>';
   }
 }
 
