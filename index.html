@@ -1710,12 +1710,14 @@ function forceReloadResults() {
   db.ref('responses/' + code).once('value').then(snap => {
     if (snap.exists()) {
       const r = getResults();
-      snap.forEach(sl => {
-        const slideKey = code + '_' + sl.key;
-        const answers = [];
-        sl.forEach(a => answers.push(a.val()));
-        r[slideKey] = answers;
-      });
+      const raw = snap.val();
+      if (raw && typeof raw === 'object') {
+        Object.entries(raw).forEach(([slideIdx, slideData]) => {
+          if (!slideData || typeof slideData !== 'object') return;
+          const answers = Object.values(slideData).filter(a => a && typeof a === 'object');
+          if (answers.length) r[code + '_' + slideIdx] = answers;
+        });
+      }
       saveResults(r);
     }
     updateLiveResults();
@@ -2301,6 +2303,21 @@ async function syncResultsFromFirebase() {
 
     const r = getResults();
 
+    // Helper: parse a single code's DataSnapshot into r[code_slideIdx] = [answers]
+    function parseCodeSnap(code, snap) {
+      const raw = snap.val();
+      if (!raw || typeof raw !== 'object') return;
+      // raw may be array or object keyed by slideIndex
+      Object.entries(raw).forEach(([slideIdx, slideData]) => {
+        if (!slideData || typeof slideData !== 'object') return;
+        const answers = Object.values(slideData).filter(a => a && typeof a === 'object');
+        if (answers.length) {
+          r[code + '_' + slideIdx] = answers;
+          console.log('[ErasmusLive] sync', code, 'slide', slideIdx, '→', answers.length, 'answers');
+        }
+      });
+    }
+
     // Try bulk read of entire responses/ (requires .read:true on responses node in rules)
     let bulkOk = false;
     try {
@@ -2310,27 +2327,17 @@ async function syncResultsFromFirebase() {
         responsesSnap.forEach(codeSnap => {
           const code = codeSnap.key;
           if (!localMeta[code]) localMeta[code] = { name: code, date: '' };
-          codeSnap.forEach(sl => {
-            const slideKey = code + '_' + sl.key;
-            const answers = [];
-            sl.forEach(a => answers.push(a.val()));
-            if (answers.length) r[slideKey] = answers;
-          });
+          parseCodeSnap(code, codeSnap);
         });
       }
     } catch(permErr) {
+      console.warn('[ErasmusLive] bulk responses/ read denied, falling back per-code:', permErr.message);
       // Bulk read denied — fall back to fetching each known code individually
       const knownCodes = new Set(Object.keys(localMeta));
       await Promise.all([...knownCodes].map(async code => {
         try {
           const snap = await db.ref('responses/' + code).once('value');
-          if (!snap.exists()) return;
-          snap.forEach(sl => {
-            const slideKey = code + '_' + sl.key;
-            const answers = [];
-            sl.forEach(a => answers.push(a.val()));
-            if (answers.length) r[slideKey] = answers;
-          });
+          if (snap.exists()) parseCodeSnap(code, snap);
         } catch(e) {}
       }));
     }
