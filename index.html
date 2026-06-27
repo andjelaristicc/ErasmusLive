@@ -75,11 +75,11 @@ h1,h2,h3{font-family:'Space Grotesk','DM Sans',sans-serif;font-weight:700}
 .slide-item .slide-title{font-size:.82rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .main-stage{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.stage-content{flex:1;padding:1.5rem;display:flex;gap:1.5rem;overflow:auto}
-.question-display{flex:1;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius2);padding:2rem;display:flex;flex-direction:column;position:relative;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
-.question-type-label{font-size:.72rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent2);margin-bottom:.5rem}
-.question-display h2{font-size:1.7rem;margin:.5rem 0 1.25rem;line-height:1.3}
-.results-panel{width:300px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius2);padding:1.25rem;overflow-y:auto}
+.stage-content{flex:1;padding:1rem 1.5rem 1.25rem;display:flex;flex-direction:column;gap:.75rem;overflow:auto}
+.question-display{flex-shrink:0;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius2);padding:.65rem 1.25rem .75rem;display:flex;flex-direction:column;position:relative;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.question-type-label{font-size:.68rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent2);margin-bottom:.2rem}
+.question-display h2{font-size:1.15rem;margin:.1rem 0 0;line-height:1.35;font-weight:700}
+.results-panel{flex:1;min-height:0;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius2);padding:1.25rem;overflow-y:auto}
 .results-panel h3{font-size:.8rem;font-weight:700;margin-bottom:.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
 .stage-controls{padding:.9rem 1.5rem;background:rgba(255,255,255,.03);border-top:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
 
@@ -262,7 +262,7 @@ select.input-field{appearance:auto;cursor:pointer}
 
 @media(max-width:700px){
   .presenter-body{flex-direction:column}.sidebar{width:100%;max-height:180px}
-  .stage-content{flex-direction:column}.results-panel{width:100%}
+  .results-panel{min-height:200px}
   .builder-body{flex-direction:column}.builder-sidebar{width:100%}
   .start-grid{grid-template-columns:1fr}
   .tf-grid{grid-template-columns:1fr 1fr}
@@ -1569,25 +1569,14 @@ function renderPresenterQuestion() {
   let inner = '';
 
   if (s.type === 'speed_quiz') {
-    inner = `<div class="timer-bar"><div id="speed-timer-bar" class="timer-bar-fill" style="width:100%"></div></div>
-      <div class="speed-timer" id="speed-timer-num">${s.timer||20}</div>
-      <div class="choice-grid">${(s.options||[]).map((o,i) => `<div style="background:${getColors()[i]}30;border:2px solid ${getColors()[i]};border-radius:var(--radius);padding:1rem;text-align:center;font-weight:600">${o}</div>`).join('')}</div>`;
-  } else if (s.type === 'true_false') {
-    inner = `<div class="tf-grid"><div class="tf-btn tf-true" style="pointer-events:none">✅ True</div><div class="tf-btn tf-false" style="pointer-events:none">❌ False</div></div>`;
+    inner = `<div class="timer-bar" style="margin-top:.4rem"><div id="speed-timer-bar" class="timer-bar-fill" style="width:100%"></div></div>
+      <div class="speed-timer" id="speed-timer-num" style="font-size:2rem;margin:.25rem 0">${s.timer||20}</div>`;
   } else if (s.type === 'multiple_choice' || s.type === 'quiz') {
-    inner = `<div class="choice-grid">${(s.options||[]).map((o,i) => `<span style="background:var(--bg3);border:2px solid ${i===s.correct&&s.type==='quiz'?'var(--accent3)':'var(--border)'};border-radius:var(--radius);padding:.75rem;font-size:.9rem;text-align:center">${o}</span>`).join('')}</div>`;
-  } else if (s.type === 'word_cloud') {
-    inner = `<div style="background:var(--bg3);border-radius:var(--radius);padding:1rem;color:var(--text3)">☁️ Participants submit keywords...</div>`;
-  } else if (s.type === 'rating') {
-    inner = `<div style="font-size:2rem;margin-top:.75rem">${'⭐'.repeat(s.max||5)}</div>`;
-  } else if (s.type === 'open_ended') {
-    inner = `<div style="background:var(--bg3);border-radius:var(--radius);padding:1rem;color:var(--text3)">💬 Collecting free text responses...</div>`;
-  } else if (s.type === 'scale') {
-    inner = `<div style="background:var(--bg3);border-radius:var(--radius);padding:1rem;color:var(--text2)">Scale from ${s.min} to ${s.max}</div>`;
-  } else if (s.type === 'ranking') {
-    inner = `<div style="color:var(--text2);font-size:.9rem">Participants drag items into their preferred order</div>`;
+    inner = `<div style="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.4rem">${(s.options||[]).map((o,i) => `<span style="background:${getColors()[i]}20;border:1px solid ${getColors()[i]}60;border-radius:6px;padding:.2rem .6rem;font-size:.8rem;color:var(--text2)">${i===s.correct&&s.type==='quiz'?'✓ ':''} ${o}</span>`).join('')}</div>`;
+  } else if (s.type === 'true_false') {
+    inner = `<div style="display:flex;gap:.5rem;margin-top:.35rem"><span style="background:#16a34a20;border:1px solid #16a34a60;border-radius:6px;padding:.2rem .7rem;font-size:.82rem;color:#4ade80">✅ True</span><span style="background:#dc262620;border:1px solid #dc262660;border-radius:6px;padding:.2rem .7rem;font-size:.82rem;color:#f87171">❌ False</span></div>`;
   } else if (s.type === 'emoji_reaction') {
-    inner = `<div class="emoji-grid">${(s.emojis||['😄','😐','😔','🔥']).map(e => `<div style="background:var(--bg3);border:2px solid var(--border);border-radius:var(--radius);padding:.75rem;text-align:center;font-size:2rem">${e}</div>`).join('')}</div>`;
+    inner = `<div style="display:flex;gap:.4rem;margin-top:.35rem">${(s.emojis||['😄','😐','😔','🔥']).map(e=>`<span style="font-size:1.3rem">${e}</span>`).join('')}</div>`;
   } else if (s.type === 'spinner') {
     inner = `<div class="spinner-container">
       <div class="spinner-canvas-wrap">
