@@ -1676,12 +1676,13 @@ function updateLiveResults() {
 }
 
 function forceReloadResults() {
-  if (!db || !appState.sessionCode) { updateLiveResults(); return; }
-  db.ref('responses/' + appState.sessionCode).once('value').then(snap => {
+  const code = appState.sessionCode || getActiveSession()?.code;
+  if (!db || !code) { updateLiveResults(); return; }
+  db.ref('responses/' + code).once('value').then(snap => {
     if (snap.exists()) {
       const r = getResults();
       snap.forEach(sl => {
-        const slideKey = appState.sessionCode + '_' + sl.key;
+        const slideKey = code + '_' + sl.key;
         const answers = [];
         sl.forEach(a => answers.push(a.val()));
         r[slideKey] = answers;
@@ -1691,6 +1692,23 @@ function forceReloadResults() {
     updateLiveResults();
     updateParticipantCount();
   }).catch(() => updateLiveResults());
+}
+
+function reconnectSession() {
+  const active = getActiveSession();
+  if (!active || !active.code || !active.slides) return;
+  document.getElementById('reconnect-banner')?.remove();
+  appState.session = active.slides;
+  appState.sessionCode = active.code;
+  appState.currentSlide = active.currentSlide ?? 0;
+  appState.acceptingAnswers = active.acceptingAnswers ?? true;
+  document.getElementById('presenter-code').textContent = active.code;
+  renderSidebarSlides();
+  showScreen('screen-presenter');
+  setupFirebaseListeners(active.code);
+  renderPresenterQuestion();
+  forceReloadResults();
+  updateParticipantCount();
 }
 
 function renderLiveChart(s, answers) {
@@ -3302,6 +3320,22 @@ function generateBingoCard() {
     showScreen('screen-participant');
     const el = document.getElementById('join-code');
     if (el) el.value = code.toUpperCase();
+    return;
+  }
+
+  // If there's an active presenter session in localStorage, show reconnect banner
+  const active = getActiveSession();
+  if (active && active.code && active.slides && active.slides.length) {
+    const banner = document.createElement('div');
+    banner.id = 'reconnect-banner';
+    banner.style.cssText = 'position:fixed;bottom:1.5rem;right:1.5rem;z-index:500;background:var(--bg3);border:1px solid rgba(52,211,153,.5);border-radius:12px;padding:1rem 1.25rem;max-width:300px;box-shadow:0 8px 24px rgba(0,0,0,.4)';
+    banner.innerHTML = `<div style="font-weight:700;color:#34d399;margin-bottom:.25rem">Session still active: ${active.code}</div>
+      <div style="font-size:.78rem;color:var(--text2);margin-bottom:.75rem">${active.slides.length} slides · ${Object.keys(getResults()).filter(k=>k.startsWith(active.code+'_')).length > 0 ? 'has responses' : 'no responses yet'}</div>
+      <div style="display:flex;gap:.5rem">
+        <button class="btn btn-sm" style="flex:1" onclick="reconnectSession()">▶ Reconnect</button>
+        <button class="btn btn-outline btn-sm" onclick="this.closest('#reconnect-banner').remove()">✕</button>
+      </div>`;
+    document.body.appendChild(banner);
   }
 })();
 </script>
