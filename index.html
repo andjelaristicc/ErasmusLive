@@ -2373,11 +2373,12 @@ function renderResultsScreen() {
     const hasData = Object.values(sessions[code]).some(v => Array.isArray(v) && v.length > 0);
     if (!hasData) delete sessions[code];
   });
-  console.log('[ErasmusLive] renderResults: sessions with data:', Object.keys(sessions));
   if (!Object.keys(sessions).length) {
     list.innerHTML = `<div style="text-align:center;padding:3rem;color:var(--text3)"><div style="font-size:3rem;margin-bottom:1rem">📭</div><div>No results saved yet</div></div>`;
     return;
   }
+  // Expand all sessions by default on first load
+  if (_expandedSessions.size === 0) Object.keys(sessions).forEach(c => _expandedSessions.add(c));
   const sorted = Object.entries(sessions).sort((a,b) => {
     const da = meta[a[0]]?.date || a[0];
     const db = meta[b[0]]?.date || b[0];
