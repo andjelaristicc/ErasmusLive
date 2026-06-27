@@ -2257,45 +2257,41 @@ function showScorePopup(pts, total) {
 // RESULTS & EXPORT
 // ============================================================
 
-// Fetches all known session codes from Firebase (library/runs) + localStorage meta,
-// then downloads responses/{code} for each and merges into localStorage.
+// Scans the entire responses/ tree in Firebase — catches every session code
+// that has responses, even ones never registered in library/runs or localStorage.
 async function syncResultsFromFirebase() {
   if (!db) return;
   try {
-    // Collect codes from both localStorage meta and Firebase library/runs
     const localMeta = getSessionsMeta();
-    const codes = new Set(Object.keys(localMeta));
 
-    const runsSnap = await db.ref('library/runs').once('value');
-    if (runsSnap.exists()) {
-      runsSnap.forEach(child => {
-        codes.add(child.key);
-        // Also save run meta to localStorage if missing
-        if (!localMeta[child.key]) {
-          localMeta[child.key] = child.val();
-        }
-      });
-      localStorage.setItem(SESSIONS_META_KEY, JSON.stringify(localMeta));
-    }
-
-    if (!codes.size) return;
-
-    // Fetch responses for every known code in parallel
-    const r = getResults();
-    await Promise.all([...codes].map(async code => {
-      try {
-        const snap = await db.ref('responses/' + code).once('value');
-        if (!snap.exists()) return;
-        snap.forEach(sl => {
-          const slideKey = code + '_' + sl.key;
-          const answers = [];
-          sl.forEach(a => answers.push(a.val()));
-          if (answers.length) r[slideKey] = answers;
+    // Pull library/runs for name/date metadata
+    try {
+      const runsSnap = await db.ref('library/runs').once('value');
+      if (runsSnap.exists()) {
+        runsSnap.forEach(child => {
+          if (!localMeta[child.key]) localMeta[child.key] = child.val();
         });
-      } catch (e) { /* skip individual code errors */ }
-    }));
+      }
+    } catch(e) {}
+
+    // Scan entire responses/ node — picks up any code with data (e.g. U13GIF)
+    const responsesSnap = await db.ref('responses').once('value');
+    if (!responsesSnap.exists()) return;
+
+    const r = getResults();
+    responsesSnap.forEach(codeSnap => {
+      const code = codeSnap.key;
+      if (!localMeta[code]) localMeta[code] = { name: code, date: '' };
+      codeSnap.forEach(sl => {
+        const slideKey = code + '_' + sl.key;
+        const answers = [];
+        sl.forEach(a => answers.push(a.val()));
+        if (answers.length) r[slideKey] = answers;
+      });
+    });
+    localStorage.setItem(SESSIONS_META_KEY, JSON.stringify(localMeta));
     saveResults(r);
-  } catch (e) { /* non-fatal: render with whatever is in localStorage */ }
+  } catch(e) { /* non-fatal — render with whatever is already in localStorage */ }
 }
 
 function renderResultsScreen() {
