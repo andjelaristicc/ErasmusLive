@@ -499,7 +499,7 @@ select.input-field{appearance:auto;cursor:pointer}
         <button class="btn btn-sm" id="btn-next" onclick="navigateSlide(1)">Next →</button>
         <div class="ml-auto flex gap-1">
           <button class="btn btn-outline btn-sm" onclick="toggleAcceptingAnswers()" id="btn-toggle">⏸ Pause answers</button>
-          <button class="btn btn-danger btn-sm" onclick="resetCurrentSlide()">🔄 Reset</button>
+          <button class="btn btn-danger btn-sm" onclick="confirmResetCurrentSlide()">🔄 Reset</button>
         </div>
       </div>
     </div>
@@ -604,8 +604,19 @@ select.input-field{appearance:auto;cursor:pointer}
 
       <div class="bingo-step" id="mq-step-3" style="display:none">
         <h3>3 · Ready</h3>
-        <p id="mq-entry-count" style="font-size:.88rem;color:var(--text2);margin-bottom:1rem"></p>
-        <button class="btn" onclick="startMusicQuiz()">🎵 Start Quiz →</button>
+        <p id="mq-entry-count" style="font-size:.88rem;color:var(--text2);margin-bottom:.85rem"></p>
+        <div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem">
+          <label style="display:flex;align-items:center;gap:.35rem;padding:.4rem .85rem;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:.85rem;user-select:none">
+            <input type="radio" name="mq-mode" value="song" style="accent-color:var(--accent)"> 🎵 Music only
+          </label>
+          <label style="display:flex;align-items:center;gap:.35rem;padding:.4rem .85rem;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:.85rem;user-select:none">
+            <input type="radio" name="mq-mode" value="both" checked style="accent-color:var(--accent)"> 🎵🎬 Both
+          </label>
+          <label style="display:flex;align-items:center;gap:.35rem;padding:.4rem .85rem;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:.85rem;user-select:none">
+            <input type="radio" name="mq-mode" value="movie" style="accent-color:var(--accent)"> 🎬 Movie only
+          </label>
+        </div>
+        <button class="btn" onclick="startMusicQuiz()">▶ Start Quiz →</button>
       </div>
     </div>
   </div>
@@ -827,6 +838,7 @@ const BUILDER_KEY        = 'erasmuslive_builder';
 const SESSIONS_META_KEY  = 'erasmuslive_sessions_meta';
 const SAVED_SESSIONS_KEY = 'erasmuslive_saved_sessions';
 const ANSWERED_KEY       = 'erasmuslive_answered'; // device-local answered tracker
+const DEVICE_TOKEN_KEY   = 'erasmuslive_token';   // stable per-device identity (avoids same-name collisions)
 
 // ============================================================
 // STATE
@@ -918,22 +930,27 @@ function setupFirebaseListeners(code) {
   sessionRef.on('value', sh);
   fbListeners.push({ ref: sessionRef, event: 'value', handler: sh });
 
-  const responsesRef = db.ref('responses/' + code);
-  const rh = snap => {
-    if (!snap.exists()) return;
-    const r = getResults();
-    snap.forEach(sl => {
-      const slideKey = code + '_' + sl.key;
-      const answers = [];
-      sl.forEach(a => answers.push(a.val()));
-      r[slideKey] = answers;
-    });
-    localStorage.setItem(RESULTS_KEY, JSON.stringify(r));
-    if (isPresenterActive()) { updateLiveResults(); updateParticipantCount(); }
-    if (isParticipantActive() && appState.participantName) syncParticipantView();
-  };
-  responsesRef.on('value', rh);
-  fbListeners.push({ ref: responsesRef, event: 'value', handler: rh });
+  // Responses listener only on presenter — participants don't need all other answers,
+  // and receiving 30 snapshots per slide wastes bandwidth and triggers unnecessary re-renders.
+  if (!appState.participantName) {
+    const responsesRef = db.ref('responses/' + code);
+    const rh = snap => {
+      if (!snap.exists()) return;
+      const r = getResults();
+      snap.forEach(sl => {
+        const slideKey = code + '_' + sl.key;
+        const answers = [];
+        sl.forEach(a => { const v = a.val(); if (v !== null) answers.push(v); });
+        // Only update if Firebase has at least as many answers as local cache.
+        // This prevents a mid-flight push from briefly overwriting a just-submitted answer.
+        if (!r[slideKey] || answers.length >= r[slideKey].length) r[slideKey] = answers;
+      });
+      localStorage.setItem(RESULTS_KEY, JSON.stringify(r));
+      if (isPresenterActive()) { updateLiveResults(); updateParticipantCount(); }
+    };
+    responsesRef.on('value', rh);
+    fbListeners.push({ ref: responsesRef, event: 'value', handler: rh });
+  }
 
   const scoresRef = db.ref('scores/' + code);
   const ssh = snap => {
@@ -944,11 +961,21 @@ function setupFirebaseListeners(code) {
   };
   scoresRef.on('value', ssh);
   fbListeners.push({ ref: scoresRef, event: 'value', handler: ssh });
+
+  // Presence: live count of connected participants
+  const presenceRef = db.ref('presence/' + code);
+  const ph = snap => {
+    _presenceCount = snap.numChildren();
+    if (isPresenterActive()) updateParticipantCount();
+  };
+  presenceRef.on('value', ph);
+  fbListeners.push({ ref: presenceRef, event: 'value', handler: ph });
 }
 
 function cleanupFirebaseListeners() {
   fbListeners.forEach(({ ref, event, handler }) => ref.off(event, handler));
   fbListeners = [];
+  _presenceCount = -1;
 }
 
 
@@ -962,10 +989,20 @@ function getScores() { try { return JSON.parse(localStorage.getItem(SCORES_KEY) 
 function saveScores(s) { localStorage.setItem(SCORES_KEY, JSON.stringify(s)); }
 // Device-local answered tracker — survives even if name matching fails
 function markAnswered(code, slideIndex) {
-  try { const a = JSON.parse(localStorage.getItem(ANSWERED_KEY)||'{}'); a[code+'_'+slideIndex]=true; localStorage.setItem(ANSWERED_KEY,JSON.stringify(a)); } catch(e){}
+  try { const a = JSON.parse(localStorage.getItem(ANSWERED_KEY)||'{}'); a[code+'_'+slideIndex]=Date.now(); localStorage.setItem(ANSWERED_KEY,JSON.stringify(a)); } catch(e){}
 }
-function hasAnsweredLocally(code, slideIndex) {
-  try { return !!(JSON.parse(localStorage.getItem(ANSWERED_KEY)||'{}')[code+'_'+slideIndex]); } catch(e){ return false; }
+function hasAnsweredLocally(code, slideIndex, resetTs) {
+  try {
+    const val = JSON.parse(localStorage.getItem(ANSWERED_KEY)||'{}')[code+'_'+slideIndex];
+    if (!val) return false;
+    if (resetTs && typeof val === 'number' && val < resetTs) return false;
+    return true;
+  } catch(e){ return false; }
+}
+function getDeviceToken() {
+  let t = localStorage.getItem(DEVICE_TOKEN_KEY);
+  if (!t) { t = Math.random().toString(36).slice(2,10) + Date.now().toString(36); localStorage.setItem(DEVICE_TOKEN_KEY, t); }
+  return t;
 }
 function getSessionsMeta() { try { return JSON.parse(localStorage.getItem(SESSIONS_META_KEY) || '{}'); } catch { return {}; } }
 function saveSessionMeta(code, name, sessionId) {
@@ -1215,6 +1252,12 @@ window.addEventListener('storage', () => {
 });
 
 let _pollTick = 0;
+let _liveResultsTimer = null;       // debounce handle for updateLiveResults
+let _lastParticipantViewKey = '';   // skip-rerender guard for syncParticipantView
+let _knownCloudWords = new Set();   // words already shown in word cloud (skip re-animation)
+let _lastCloudSlideKey = '';        // which slide the cloud state belongs to
+let _ptimer = null;                 // participant speed-quiz countdown interval
+let _presenceCount = -1;            // live connected count from Firebase presence (-1 = not yet received)
 setInterval(() => {
   _pollTick++;
   if (isPresenterActive()) {
@@ -1241,6 +1284,7 @@ function isParticipantActive() { return document.getElementById('screen-particip
 // ============================================================
 function generateCode() { return Math.random().toString(36).slice(2, 8).toUpperCase(); }
 function escQ(s) { return String(s).replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function getColors() { return ['#f97316','#6366f1','#ec4899','#14b8a6','#84cc16','#f43f5e','#a78bfa','#fb923c','#38bdf8','#c084fc','#4ade80','#fbbf24']; }
 
 function typeName(t) {
@@ -1470,6 +1514,7 @@ function endSession() {
     if (db && code) {
       db.ref('sessions/' + code).remove().catch(() => {});
       db.ref('scores/' + code).remove().catch(() => {});
+      db.ref('presence/' + code).remove().catch(() => {});
       // responses kept permanently in Firebase for historical access
     }
     localStorage.removeItem(ACTIVE_KEY);
@@ -1527,13 +1572,35 @@ function toggleAcceptingAnswers() {
   document.getElementById('btn-toggle').textContent = appState.acceptingAnswers ? '⏸ Pause answers' : '▶ Resume answers';
 }
 
+function confirmResetCurrentSlide() {
+  const s = appState.session[appState.currentSlide];
+  const q = s ? escHtml(s.question || 'this slide') : 'this slide';
+  const count = (getResults()[appState.sessionCode + '_' + appState.currentSlide] || []).length;
+  showModal(`
+    <h2 style="color:var(--accent5)">🗑 Delete all responses?</h2>
+    <p style="margin-bottom:.5rem">Slide ${appState.currentSlide + 1}: <strong>${q}</strong></p>
+    <p style="color:var(--accent5);font-weight:600;margin-bottom:1.25rem">${count} response${count !== 1 ? 's' : ''} will be permanently deleted — this cannot be undone.</p>
+    <p>Participants will be able to answer again after the reset.</p>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="closeModal();resetCurrentSlide()">Delete ${count} response${count !== 1 ? 's' : ''}</button>
+    </div>
+  `);
+}
+
 function resetCurrentSlide() {
-  if (!confirm('Delete all responses for this slide?')) return;
   const r = getResults();
   const k = appState.sessionCode + '_' + appState.currentSlide;
   delete r[k];
   saveResults(r);
   if (db) db.ref('responses/' + appState.sessionCode + '/' + appState.currentSlide).remove().catch(() => {});
+  // Broadcast reset time so participants know to re-enable their answer form
+  const now = Date.now();
+  const active = getActiveSession() || {};
+  active.resetTs = now;
+  setActiveSession(active);
+  _lastParticipantViewKey = ''; // force next syncParticipantView to re-render
+  _knownCloudWords = new Set(); // reset cloud word tracking for fresh animation
   updateLiveResults();
 }
 
@@ -1684,6 +1751,10 @@ function spinWheel() {
 // LIVE RESULTS
 // ============================================================
 function updateLiveResults() {
+  clearTimeout(_liveResultsTimer);
+  _liveResultsTimer = setTimeout(_doUpdateLiveResults, 150);
+}
+function _doUpdateLiveResults() {
   if (appState.currentSlide < 0) return;
   const s = appState.session[appState.currentSlide];
   if (!s) return;
@@ -1691,6 +1762,15 @@ function updateLiveResults() {
   const k = appState.sessionCode + '_' + appState.currentSlide;
   const answers = r[k] || [];
   document.getElementById('live-results-content').innerHTML = renderLiveChart(s, answers);
+  // Animate bar fills: capture target widths, snap to 0, then transition to target
+  const bars = document.querySelectorAll('#live-results-content .bar-fill');
+  if (bars.length) {
+    const targets = Array.from(bars).map(el => el.style.width);
+    bars.forEach(el => { el.style.transition = 'none'; el.style.width = '0'; });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      bars.forEach((el, i) => { el.style.transition = ''; el.style.width = targets[i]; });
+    }));
+  }
   if (document.getElementById('results-overlay')) renderResultsOverlayContent();
 }
 
@@ -1716,7 +1796,9 @@ function forceReloadResults() {
         Object.entries(raw).forEach(([slideIdx, slideData]) => {
           if (!slideData || typeof slideData !== 'object') return;
           const answers = Object.values(slideData).filter(a => a && typeof a === 'object');
-          if (answers.length) r[code + '_' + slideIdx] = answers;
+          const key = code + '_' + slideIdx;
+          // Never overwrite local with a smaller Firebase snapshot (propagation lag protection)
+          if (answers.length && (!r[key] || answers.length >= r[key].length)) r[key] = answers;
         });
       }
       saveResults(r);
@@ -1774,18 +1856,21 @@ function renderLiveChart(s, answers) {
 
   if (s.type === 'word_cloud') {
     const freq = {};
-    answers.forEach(a => { const w = (a.value||'').trim(); if (w) freq[w] = (freq[w]||0) + 1; });
+    answers.forEach(a => { const w = (a.value||'').trim().toLowerCase().replace(/[^a-z0-9àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿа-яёÀ-ɏ]/gi,'').trim(); if (w) freq[w] = (freq[w]||0) + 1; });
     const sorted = Object.entries(freq).sort((a,b) => b[1]-a[1]).slice(0, 80);
     if (!sorted.length) return `<div style="color:var(--text3);font-size:.85rem;text-align:center;padding:1rem">⏳ No responses yet</div>`;
     const mx = sorted[0][1];
     const n = sorted.length;
-    // Scale font range down as word count grows so everything fits without scrolling
+    const slideKey = (appState.sessionCode||'') + '_' + (appState.currentSlide||0);
+    if (slideKey !== _lastCloudSlideKey) { _knownCloudWords = new Set(); _lastCloudSlideKey = slideKey; }
     const maxEm = n > 40 ? 1.6 : n > 20 ? 2.0 : n > 10 ? 2.6 : 3.2;
     const minEm = n > 40 ? 0.65 : n > 20 ? 0.72 : 0.8;
     const tags = sorted.map(([w, cnt], i) => {
       const em = (minEm + (cnt / mx) * (maxEm - minEm)).toFixed(2);
-      return `<span style="display:inline-block;font-size:${em}em;color:${colors[i%colors.length]};font-weight:700;padding:.06em .18em;animation:wordPop .4s ease;line-height:1.2">${w}${cnt > 1 ? `<span style="font-size:.44em;opacity:.55"> ×${cnt}</span>` : ''}</span>`;
+      const anim = _knownCloudWords.has(w) ? '' : 'animation:wordPop .5s cubic-bezier(.34,1.56,.64,1);';
+      return `<span style="display:inline-block;font-size:${em}em;color:${colors[i%colors.length]};font-weight:700;padding:.06em .18em;${anim}line-height:1.2">${escHtml(w)}${cnt > 1 ? `<span style="font-size:.44em;opacity:.55"> ×${cnt}</span>` : ''}</span>`;
     }).join('');
+    sorted.forEach(([w]) => _knownCloudWords.add(w));
     return `<div style="display:flex;flex-wrap:wrap;gap:.08rem .4rem;justify-content:center;align-items:center;width:100%;padding:.4rem 0">${tags}</div>
     <div style="font-size:.72rem;color:var(--text3);margin-top:.3rem;text-align:center">${count} response${count!==1?'s':''} · ${sorted.length} unique word${sorted.length!==1?'s':''}</div>`;
   }
@@ -1798,7 +1883,8 @@ function renderLiveChart(s, answers) {
     const mxT = Math.max(...tally.slice(1), 1);
     const rows = Array.from({length:mx}, (_,i) => {
       const n = tally[i+1] || 0;
-      return `<div class="bar-row"><div class="bar-label">${'⭐'.repeat(i+1)}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(n/mxT*100)}%;background:${colors[i%colors.length]}">${n||''}</div></div><div class="bar-count">${n}</div></div>`;
+      const lbl = mx <= 5 ? '⭐'.repeat(i+1) : `⭐ ${i+1}`;
+      return `<div class="bar-row"><div class="bar-label">${lbl}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(n/mxT*100)}%;background:${colors[i%colors.length]}">${n||''}</div></div><div class="bar-count">${n}</div></div>`;
     }).join('');
     return `<div class="bar-chart">${rows}</div><div style="margin-top:.6rem;font-size:.85rem;color:var(--text2)">Avg ${avg.toFixed(1)} ⭐ · ${count} response${count!==1?'s':''}</div>`;
   }
@@ -1814,7 +1900,7 @@ function renderLiveChart(s, answers) {
   }
 
   if (s.type === 'open_ended') {
-    const bubbles = [...answers].reverse().map(a => `<div class="response-bubble"><strong style="color:var(--accent2);font-size:.78rem">${a.anonymous ? 'Anonymous' : (a.name||'?')}:</strong> ${a.value}</div>`).join('');
+    const bubbles = [...answers].reverse().map(a => `<div class="response-bubble"><strong style="color:var(--accent2);font-size:.78rem">${a.anonymous ? 'Anonymous' : escHtml(a.name||'?')}:</strong> ${escHtml(a.value||'')}</div>`).join('');
     return `<div class="response-bubbles">${bubbles}</div><div style="margin-top:.6rem;font-size:.78rem;color:var(--text3)">${count} response${count!==1?'s':''}</div>`;
   }
 
@@ -1847,13 +1933,19 @@ function renderLiveChart(s, answers) {
 
 function updateParticipantCount() {
   if (!isPresenterActive()) return;
-  const r = getResults();
-  const names = new Set();
-  Object.entries(r).forEach(([k, arr]) => {
-    if (k.startsWith(appState.sessionCode + '_')) arr.forEach(a => { if (a.name) names.add(a.name); });
-  });
   const el = document.getElementById('presenter-participants');
-  if (el) el.textContent = names.size + ' participant' + (names.size !== 1 ? 's' : '');
+  if (!el) return;
+  if (_presenceCount >= 0) {
+    el.textContent = _presenceCount + ' participant' + (_presenceCount !== 1 ? 's' : '') + ' connected';
+  } else {
+    // Fallback until presence data arrives: count unique answerers
+    const r = getResults();
+    const names = new Set();
+    Object.entries(r).forEach(([k, arr]) => {
+      if (k.startsWith(appState.sessionCode + '_')) arr.forEach(a => { if (a.name) names.add(a.name); });
+    });
+    el.textContent = names.size + ' participant' + (names.size !== 1 ? 's' : '');
+  }
 }
 
 // ============================================================
@@ -2020,6 +2112,12 @@ async function joinSession() {
   document.getElementById('participant-question-view').classList.remove('hidden');
   document.getElementById('participant-name-display').textContent = name;
   setupFirebaseListeners(code);
+  // Register presence so presenter sees connected count (removed automatically on disconnect)
+  if (db) {
+    const presRef = db.ref('presence/' + code + '/' + getDeviceToken());
+    presRef.set({ name, ts: Date.now() }).catch(() => {});
+    presRef.onDisconnect().remove().catch(() => {});
+  }
   syncParticipantView();
 }
 
@@ -2041,13 +2139,25 @@ function syncParticipantView() {
   const view = document.getElementById('participant-question-view');
   const r = getResults();
   const k = active.code + '_' + active.currentSlide;
-  const myAnswers = (r[k]||[]).filter(a => a.name === appState.participantName);
-  // Use device-local tracker as primary (survives null/empty name mismatches)
-  const alreadyAnswered = hasAnsweredLocally(active.code, active.currentSlide) || myAnswers.length > 0;
+  const myToken = getDeviceToken();
+  const resetTs = active.resetTs || 0;
+  // Match by device token; ignore answers submitted before a slide reset
+  const myAnswers = (r[k]||[]).filter(a => {
+    const mine = a.token ? a.token === myToken : a.name === appState.participantName;
+    return mine && (!resetTs || !a.ts || a.ts >= resetTs);
+  });
+  // Use device-local tracker as primary; check against reset timestamp
+  const alreadyAnswered = hasAnsweredLocally(active.code, active.currentSlide, resetTs) || myAnswers.length > 0;
+
+  // Skip DOM rewrite when nothing visible has changed — avoids 1-per-second full re-render
+  const viewKey = `${active.code}_${active.currentSlide}_${alreadyAnswered?1:0}_${active.acceptingAnswers?1:0}_${resetTs}`;
+  if (viewKey === _lastParticipantViewKey) return;
 
   // Skip re-render while user is actively typing — avoids dismissing the mobile keyboard
   const focused = document.activeElement;
   if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA') && view.contains(focused) && active.acceptingAnswers && !alreadyAnswered) return;
+
+  _lastParticipantViewKey = viewKey;
 
   if (!active.acceptingAnswers) {
     let extra = '';
@@ -2118,22 +2228,23 @@ function renderParticipantQuestion(s, active) {
 }
 
 function initParticipantInteractive(s) {
+  if (_ptimer) { clearInterval(_ptimer); _ptimer = null; }
   if (s.type === 'ranking') { setTimeout(() => initDragDrop(), 100); }
   if (s.type === 'speed_quiz') {
     const active = getActiveSession();
     const ts = active?.slideTs || 0;
     const total = s.timer || 20;
-    const t = setInterval(() => {
+    _ptimer = setInterval(() => {
       const elapsed = Math.floor((Date.now() - ts) / 1000);
       const left = Math.max(0, total - elapsed);
       const timerEl = document.getElementById('ptimer-num');
       const barEl = document.getElementById('ptimer-bar');
-      if (!timerEl) { clearInterval(t); return; }
+      if (!timerEl) { clearInterval(_ptimer); _ptimer = null; return; }
       timerEl.textContent = left;
       const pct = Math.round(left / total * 100);
       if (barEl) { barEl.style.width = pct + '%'; barEl.style.background = pct<=30?'var(--accent5)':pct<=50?'var(--accent4)':'var(--accent3)'; }
       if (pct <= 30) timerEl.classList.add('danger');
-      if (left <= 0) clearInterval(t);
+      if (left <= 0) { clearInterval(_ptimer); _ptimer = null; }
     }, 500);
   }
 }
@@ -2229,11 +2340,13 @@ function submitAnswer(value) {
   if (!value || String(value).trim() === '') { alert('Please enter a response.'); return; }
   const active = getActiveSession();
   if (!active) return;
+  if (!active.acceptingAnswers) return; // presenter paused or timer ended
   const slide = active.slides[active.currentSlide];
   const ts = Date.now();
 
   const answer = {
     name: appState.participantName || '',
+    token: getDeviceToken(),
     anonymous: active.anonymous || false,
     value: String(value).trim(),
     question: slide.question || '',
@@ -2314,12 +2427,13 @@ async function syncResultsFromFirebase() {
     function parseCodeSnap(code, snap) {
       const raw = snap.val();
       if (!raw || typeof raw !== 'object') return;
-      // raw may be array or object keyed by slideIndex
       Object.entries(raw).forEach(([slideIdx, slideData]) => {
         if (!slideData || typeof slideData !== 'object') return;
         const answers = Object.values(slideData).filter(a => a && typeof a === 'object');
-        if (answers.length) {
-          r[code + '_' + slideIdx] = answers;
+        const key = code + '_' + slideIdx;
+        // Keep whichever snapshot has more answers — protects against brief propagation lag
+        if (answers.length && (!r[key] || answers.length >= r[key].length)) {
+          r[key] = answers;
           console.log('[ErasmusLive] sync', code, 'slide', slideIdx, '→', answers.length, 'answers');
         }
       });
@@ -2374,7 +2488,12 @@ function renderResultsScreen() {
     if (!hasData) delete sessions[code];
   });
   if (!Object.keys(sessions).length) {
-    list.innerHTML = `<div style="text-align:center;padding:3rem;color:var(--text3)"><div style="font-size:3rem;margin-bottom:1rem">📭</div><div>No results saved yet</div></div>`;
+    list.innerHTML = `<div style="text-align:center;padding:3rem;color:var(--text3)">
+      <div style="font-size:3rem;margin-bottom:1rem">📭</div>
+      <div style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:.5rem">No session results found on this device</div>
+      <div style="font-size:.85rem;color:var(--text2);margin-bottom:1.25rem">If sessions were run on another device or browser, use Sync to load them from Firebase.</div>
+      <button class="btn" onclick="syncResultsFromFirebase().then(()=>renderResultsScreen())">🔄 Sync from Firebase</button>
+    </div>`;
     return;
   }
   // Expand all sessions by default on first load
@@ -2398,11 +2517,14 @@ function renderResultsScreen() {
     const cards = Object.entries(safeSlideData).sort((a,b) => parseInt(a[0])-parseInt(b[0])).map(([idx, answers]) => {
       const n = answers.length;
       const names = [...new Set(answers.map(a => a?.name).filter(Boolean))];
-      const questionText = answers[0]?.question || '';
+      const slideType = answers.find(a => a?.slideType)?.slideType || '';
+      const questionText = answers.find(a => a?.question)?.question || '';
+      const typeLabel = slideType ? typeName(slideType) : 'Question';
+      const nameList = names.slice(0,8).map(n => escHtml(n)).join(', ') + (names.length > 8 ? ` +${names.length-8} more` : '');
       return `<div class="result-card">
-        <div style="font-size:.72rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent2);margin-bottom:.25rem">Slide ${parseInt(idx)+1} · ${answers[0]?.slideType ? typeName(answers[0].slideType) : 'Question'}</div>
-        ${questionText ? `<div style="font-size:.95rem;font-weight:700;margin-bottom:.5rem;line-height:1.4">${questionText}</div>` : ''}
-        <div style="font-size:.82rem;color:var(--text2);margin-bottom:.75rem">${n} response${n!==1?'s':''} · ${names.slice(0,6).join(', ')}${names.length>6?` +${names.length-6} more`:''}</div>
+        <div style="font-size:.72rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent2);margin-bottom:.25rem">Slide ${parseInt(idx)+1} · ${typeLabel}</div>
+        ${questionText ? `<div style="font-size:.95rem;font-weight:700;margin-bottom:.5rem;line-height:1.4">${escHtml(questionText)}</div>` : ''}
+        <div style="font-size:.82rem;color:var(--text2);margin-bottom:.75rem">${n} response${n!==1?'s':''} · ${nameList}</div>
         ${renderSimpleResult(answers)}
       </div>`;
     }).join('');
@@ -2490,7 +2612,7 @@ function renderSimpleResult(answers) {
   let summary = '';
   if (type !== 'open_ended' && type !== 'ranking') {
     const freq = {};
-    answers.forEach(a => { const v = (a.value||'?').trim(); freq[v] = (freq[v]||0)+1; });
+    answers.forEach(a => { const v = type === 'word_cloud' ? (a.value||'?').trim().toLowerCase() : (a.value||'?').trim(); freq[v] = (freq[v]||0)+1; });
     if (type === 'word_cloud') {
       const top = Object.entries(freq).sort((a,b) => b[1]-a[1]).slice(0,14);
       const mx = top[0]?.[1] || 1;
@@ -2516,15 +2638,19 @@ function renderSimpleResult(answers) {
 function buildCSV(codes) {
   const r = getResults();
   const meta = getSessionsMeta();
+  // Safe CSV cell: escape quotes, strip newlines (newlines inside cells break row boundaries)
+  const cell = s => '"' + String(s||'').replace(/"/g,'""').replace(/[\r\n]+/g,' ') + '"';
+  const SCORED_TYPES = new Set(['quiz','speed_quiz','true_false']);
   let csv = 'SessionCode,SessionName,Date,Slide,Type,Question,Name,Answer,Points,Timestamp\n';
   Object.entries(r).filter(([k]) => !codes || codes.has(k.split('_')[0])).forEach(([k, arr]) => {
     const [code, idx] = k.split('_');
     const m = meta[code] || {};
-    const sessionName = (m.name || '').replace(/"/g,'""');
     const sessionDate = m.date ? new Date(m.date).toLocaleDateString() : '';
     arr.forEach(a => {
       const displayName = a.anonymous ? 'Anonymous' : (a.name||'');
-      csv += `"${code}","${sessionName}","${sessionDate}","${parseInt(idx)+1}","${a.slideType||''}","${(a.question||'').replace(/"/g,'""')}","${displayName.replace(/"/g,'""')}","${(a.value||'').replace(/"/g,'""')}","${a.points||0}","${new Date(a.ts).toLocaleString()}"\n`;
+      const pts = SCORED_TYPES.has(a.slideType) ? (a.points !== undefined ? a.points : '') : '';
+      const ts = a.ts ? new Date(a.ts).toLocaleString() : '';
+      csv += [cell(code),cell(m.name||''),cell(sessionDate),cell(parseInt(idx)+1),cell(a.slideType||''),cell(a.question||''),cell(displayName),cell(a.value||''),cell(pts),cell(ts)].join(',') + '\n';
     });
   });
   return csv;
@@ -2583,6 +2709,12 @@ function clearAllResults() {
     localStorage.removeItem(RESULTS_KEY);
     localStorage.removeItem(SCORES_KEY);
     localStorage.removeItem(SESSIONS_META_KEY);
+    // Also wipe Firebase so data doesn't re-download on next load
+    if (db) {
+      db.ref('responses').remove().catch(() => {});
+      db.ref('scores').remove().catch(() => {});
+      db.ref('library/runs').remove().catch(() => {});
+    }
     renderResultsScreen();
   }
 }
@@ -2608,6 +2740,7 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 // ============================================================
 let _mqData = [];
 let _mqCurrent = 0;
+let _mqMode = 'both'; // 'song' | 'movie' | 'both'
 let _mqCsvRows = [];
 let _mqHeaders = [];
 
@@ -2660,6 +2793,7 @@ function loadMqEntries() {
 }
 
 function startMusicQuiz() {
+  _mqMode = document.querySelector('input[name="mq-mode"]:checked')?.value || 'both';
   _mqData.forEach(e => e.revealed = false);
   _mqCurrent = 0;
   renderMqCard();
@@ -2704,11 +2838,14 @@ function renderMqCard() {
   const nameHtml = e.revealed
     ? `<div class="mq-name-clear">${e.name || '(no name)'}</div><button class="btn btn-outline btn-sm" style="margin-top:.85rem" onclick="revealMqCurrent()">🙈 Hide Name</button>`
     : `<div class="mq-name-blur" aria-hidden="true">${e.name || '???'}</div><button class="btn btn-sm" style="margin-top:.85rem" onclick="revealMqCurrent()">👁 Show Name</button>`;
+  const showSong  = _mqMode === 'song'  || _mqMode === 'both';
+  const showMovie = _mqMode === 'movie' || _mqMode === 'both';
+  const cols = _mqMode === 'both' ? '' : 'grid-template-columns:1fr;max-width:400px;margin-left:auto;margin-right:auto';
   document.getElementById('mq-card').innerHTML = `
     <div class="mq-entry-badge">Entry ${_mqCurrent + 1} of ${total}</div>
-    <div class="mq-media-row">
-      <div class="mq-media-block"><label>🎵 Favorite Song</label>${mqMediaHtml(e.song, 'song')}</div>
-      <div class="mq-media-block"><label>🎬 Favorite Movie</label>${mqMediaHtml(e.movie, 'movie')}</div>
+    <div class="mq-media-row" style="${cols}">
+      ${showSong  ? `<div class="mq-media-block"><label>🎵 Favorite Song</label>${mqMediaHtml(e.song, 'song')}</div>` : ''}
+      ${showMovie ? `<div class="mq-media-block"><label>🎬 Favorite Movie</label>${mqMediaHtml(e.movie, 'movie')}</div>` : ''}
     </div>
     <div class="mq-name-box">${nameHtml}</div>`;
 }
