@@ -529,7 +529,7 @@ select.input-field{appearance:auto;cursor:pointer}
       <input class="input-field" id="join-code" placeholder="Session code (e.g. A3F7X2)" maxlength="6" style="text-transform:uppercase;letter-spacing:3px;font-size:1.2rem;text-align:center">
       <input class="input-field" id="join-name" placeholder="Your name or nickname">
       <button class="btn" onclick="joinSession()" style="width:100%;justify-content:center;padding:1rem">Join →</button>
-      <button class="btn btn-outline" onclick="showScreen('screen-start')" style="width:100%;justify-content:center">← Back</button>
+      <button class="btn btn-outline" id="join-back-btn" onclick="showScreen('screen-start')" style="width:100%;justify-content:center">← Back</button>
     </div>
     <div id="participant-question-view" class="hidden"></div>
   </div>
@@ -2126,7 +2126,7 @@ function showSessionEndedScreen() {
   if (!view) return;
   appState.participantName = '';
   appState.sessionCode = '';
-  view.innerHTML = `<div class="question-card"><div class="submitted-state"><div class="check">🏁</div><div style="font-size:1.1rem;font-weight:600;color:var(--text)">Session ended</div><div style="color:var(--text2);margin-bottom:1.5rem">Thanks for participating!</div><button class="btn" onclick="showScreen('screen-start');document.getElementById('join-form').classList.remove('hidden');document.getElementById('participant-question-view').classList.add('hidden')">← Back to start</button></div></div>`;
+  view.innerHTML = `<div class="question-card"><div class="submitted-state"><div class="check">🏁</div><div style="font-size:1.1rem;font-weight:600;color:var(--text)">Session ended</div><div style="color:var(--text2);margin-bottom:1.5rem">Thanks for participating!</div><button class="btn" onclick="showScreen('screen-participant');document.getElementById('join-form').classList.remove('hidden');document.getElementById('participant-question-view').classList.add('hidden');document.getElementById('join-code').value='';document.getElementById('join-name').value=''">Join another session</button></div></div>`;
 }
 
 function syncParticipantView() {
@@ -2499,9 +2499,9 @@ function renderResultsScreen() {
   // Expand all sessions by default on first load
   if (_expandedSessions.size === 0) Object.keys(sessions).forEach(c => _expandedSessions.add(c));
   const sorted = Object.entries(sessions).sort((a,b) => {
-    const da = meta[a[0]]?.date || a[0];
-    const db = meta[b[0]]?.date || b[0];
-    return db.localeCompare(da);
+    const da = meta[a[0]]?.date ? new Date(meta[a[0]].date).getTime() : 0;
+    const db = meta[b[0]]?.date ? new Date(meta[b[0]].date).getTime() : 0;
+    return db - da; // newest first; sessions without a date sink to bottom
   });
   list.innerHTML = sorted.map(([code, slideData]) => {
     const m = meta[code] || {};
@@ -3666,6 +3666,12 @@ function generateBingoCard() {
     showScreen('screen-participant');
     const el = document.getElementById('join-code');
     if (el) el.value = code.toUpperCase();
+    // Hide the back button — participants who scanned a QR have nowhere to "go back" to,
+    // and showing the admin dashboard would be a security gap.
+    const backBtn = document.getElementById('join-back-btn');
+    if (backBtn) backBtn.style.display = 'none';
+    // Replace the URL so browser Back doesn't reload this ?join= page repeatedly
+    history.replaceState(null, '', window.location.pathname);
     return;
   }
 
