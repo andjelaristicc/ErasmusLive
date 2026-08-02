@@ -187,6 +187,7 @@ select.input-field{appearance:auto;cursor:pointer}
 .team-btn::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.12),transparent);pointer-events:none}
 .team-btn:active{transform:scale(.97)}
 .team-btn.team-full{opacity:.42;cursor:not-allowed;filter:grayscale(.55)}
+.team-btn.team-mine{outline:3px solid rgba(255,255,255,.9);outline-offset:2px}
 .team-btn-name{font-size:1rem;font-weight:800;line-height:1.1}
 .team-btn-count{font-size:.73rem;font-weight:700;opacity:.85;margin-top:.1rem}
 .team-btn-members{font-size:.66rem;opacity:.68;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;margin-top:.15rem}
@@ -2007,16 +2008,25 @@ function renderLiveChart(s, answers) {
 
   if (s.type === 'team_pick') {
     const maxPerTeam = s.maxPerTeam || 7;
+    // Deduplicate: only the last answer per token counts
+    const lastByToken = {};
+    answers.forEach(a => {
+      const tok = a.token || a.name || '';
+      if (!tok || !a.value) return;
+      if (!lastByToken[tok] || (a.ts || 0) > (lastByToken[tok].ts || 0)) lastByToken[tok] = a;
+    });
+    const effective = Object.values(lastByToken);
     const tally = {};
     const members = {};
     (s.teams || []).forEach(t => { tally[t] = 0; members[t] = []; });
-    answers.forEach(a => {
+    effective.forEach(a => {
       if (a.value && tally[a.value] !== undefined) {
         tally[a.value]++;
         const nm = a.anonymous ? null : a.name;
         if (nm && !members[a.value].includes(nm)) members[a.value].push(nm);
       }
     });
+    const count = effective.length;
     const cards = (s.teams || []).map((team, i) => {
       const n = tally[team] || 0;
       const full = n >= maxPerTeam;
@@ -2253,12 +2263,20 @@ function syncParticipantView() {
     const mine = a.token ? a.token === myToken : a.name === appState.participantName;
     return mine && (!resetTs || !a.ts || a.ts >= resetTs);
   });
-  // Use device-local tracker as primary; check against reset timestamp
-  const alreadyAnswered = hasAnsweredLocally(active.code, active.currentSlide, resetTs) || myAnswers.length > 0;
+  // team_pick always keeps the picker open — switching is allowed
+  const isTeamPick = slide && slide.type === 'team_pick';
+  const alreadyAnswered = isTeamPick
+    ? false
+    : hasAnsweredLocally(active.code, active.currentSlide, resetTs) || myAnswers.length > 0;
+
+  // For team_pick, track participant's current team for highlighting + viewKey
+  const myCurrentTeam = isTeamPick && myAnswers.length > 0
+    ? myAnswers.reduce((latest, a) => (!latest || (a.ts||0) > (latest.ts||0)) ? a : latest, null)?.value || ''
+    : '';
 
   // Skip DOM rewrite when nothing visible has changed — avoids 1-per-second full re-render
-  const teamSig = slide && slide.type === 'team_pick' ? JSON.stringify(_teamPickCounts) : '';
-  const viewKey = `${active.code}_${active.currentSlide}_${alreadyAnswered?1:0}_${active.acceptingAnswers?1:0}_${resetTs}_${teamSig}`;
+  const teamSig = isTeamPick ? JSON.stringify(_teamPickCounts) : '';
+  const viewKey = `${active.code}_${active.currentSlide}_${alreadyAnswered?1:0}_${active.acceptingAnswers?1:0}_${resetTs}_${teamSig}_${myCurrentTeam}`;
   if (viewKey === _lastParticipantViewKey) return;
 
   // Skip re-render while user is actively typing — avoids dismissing the mobile keyboard
@@ -2288,11 +2306,11 @@ function syncParticipantView() {
     view.innerHTML = `<div class="question-card"><div class="submitted-state"><div class="check">✅</div><div style="font-size:1.1rem;font-weight:600;color:var(--accent3)">Response saved!</div><div style="color:var(--text2)">Waiting for next question...</div></div></div>`;
     return;
   }
-  view.innerHTML = renderParticipantQuestion(slide, active);
+  view.innerHTML = renderParticipantQuestion(slide, active, myCurrentTeam);
   initParticipantInteractive(slide);
 }
 
-function renderParticipantQuestion(s, active) {
+function renderParticipantQuestion(s, active, myCurrentTeam) {
   const colors = getColors();
   const LETTERS = ['A','B','C','D','E','F','G','H'];
   const answerGrid = (opts, extra) => `<div class="answer-grid">${opts.map((o,i) => `<button class="answer-btn" style="background:${colors[i%colors.length]}" onclick="submitAnswer('${escQ(o)}')" ${extra||''}><span class="answer-letter">${LETTERS[i]||String.fromCharCode(65+i)}</span><span class="answer-text">${o}</span></button>`).join('')}</div>`;
@@ -2337,15 +2355,20 @@ function renderParticipantQuestion(s, active) {
     const btns = teams.map((team, i) => {
       const count = _teamPickCounts[team] || 0;
       const teamMembers = _teamPickNames[team] || [];
-      const full = count >= maxPerTeam;
+      const isMine = team === myCurrentTeam;
+      // Full = at capacity AND it's not the team I'm already in (my spot doesn't count against me)
+      const full = count >= maxPerTeam && !isMine;
       const memberStr = teamMembers.slice(0, 4).join(', ') + (teamMembers.length > 4 ? ` +${teamMembers.length - 4}` : '');
-      return `<button class="team-btn${full ? ' team-full' : ''}" style="background:${colors[i % colors.length]}" ${full ? 'disabled' : `onclick="submitAnswer('${escQ(team)}')"`}>
+      return `<button class="team-btn${full ? ' team-full' : ''}${isMine ? ' team-mine' : ''}" style="background:${colors[i % colors.length]}" ${full ? 'disabled' : `onclick="submitAnswer('${escQ(team)}')"`}>
         <span class="team-btn-name">${escHtml(team)}</span>
-        <span class="team-btn-count">${count}/${maxPerTeam}${full ? ' · Full' : ''}</span>
+        <span class="team-btn-count">${count}/${maxPerTeam}${full ? ' · Full' : isMine ? ' · You are here' : ''}</span>
         ${memberStr ? `<span class="team-btn-members">${escHtml(memberStr)}</span>` : ''}
       </button>`;
     }).join('');
-    body = `<div class="team-grid">${btns}</div>`;
+    const hint = myCurrentTeam
+      ? `<div style="text-align:center;font-size:.8rem;color:var(--accent3);margin-top:.8rem">You're in <strong>${escHtml(myCurrentTeam)}</strong> — tap another team to switch</div>`
+      : `<div style="text-align:center;font-size:.8rem;color:var(--text3);margin-top:.8rem">Tap a team to join</div>`;
+    body = `<div class="team-grid">${btns}</div>${hint}`;
   }
 
   return `<div class="question-card"><div class="qtype">${typeName(s.type)}</div><h2>${s.question}</h2>${body}</div>`;
@@ -2384,21 +2407,26 @@ function setupTeamPickListener(code, slideIndex) {
   _teamPickSlideKey = key;
   const ref = db.ref('responses/' + code + '/' + slideIndex);
   const handler = snap => {
-    const counts = {};
-    const names = {};
+    const lastByToken = {};
     if (snap.exists()) {
       snap.forEach(child => {
         const a = child.val();
-        if (a && a.value) {
-          counts[a.value] = (counts[a.value] || 0) + 1;
-          const nm = a.anonymous ? null : a.name;
-          if (nm) {
-            if (!names[a.value]) names[a.value] = [];
-            if (!names[a.value].includes(nm)) names[a.value].push(nm);
-          }
-        }
+        if (!a || !a.value) return;
+        const tok = a.token || a.name || '';
+        if (!tok) return;
+        if (!lastByToken[tok] || (a.ts || 0) > (lastByToken[tok].ts || 0)) lastByToken[tok] = a;
       });
     }
+    const counts = {};
+    const names = {};
+    Object.values(lastByToken).forEach(a => {
+      counts[a.value] = (counts[a.value] || 0) + 1;
+      const nm = a.anonymous ? null : a.name;
+      if (nm) {
+        if (!names[a.value]) names[a.value] = [];
+        if (!names[a.value].includes(nm)) names[a.value].push(nm);
+      }
+    });
     _teamPickCounts = counts;
     _teamPickNames = names;
   };
@@ -2543,7 +2571,8 @@ function submitAnswer(value) {
   }
 
   addResponse(active.code, active.currentSlide, answer);
-  markAnswered(active.code, active.currentSlide);
+  // team_pick allows switching — don't lock the participant out with markAnswered
+  if (slide.type !== 'team_pick') markAnswered(active.code, active.currentSlide);
   syncParticipantView();
 }
 
@@ -2778,8 +2807,15 @@ function renderSimpleResult(answers) {
   // Frequency summary by slide type
   let summary = '';
   if (type === 'team_pick') {
-    const teamMap = {};
+    // Only the last answer per token counts — someone who switched teams appears in their final team
+    const lastByToken = {};
     answers.forEach(a => {
+      const tok = a.token || a.name || '';
+      if (!tok || !a.value) return;
+      if (!lastByToken[tok] || (a.ts || 0) > (lastByToken[tok].ts || 0)) lastByToken[tok] = a;
+    });
+    const teamMap = {};
+    Object.values(lastByToken).forEach(a => {
       if (!a.value) return;
       if (!teamMap[a.value]) teamMap[a.value] = [];
       const nm = a.anonymous ? 'Anonymous' : (a.name || '?');
