@@ -72,6 +72,7 @@ h1,h2,h3{font-family:'Space Grotesk','DM Sans',sans-serif;font-weight:700}
 .badge-ranking{background:#4a1942;color:#f0abfc}
 .badge-emoji{background:#3d2a00;color:#fde68a}
 .badge-spinner{background:#1a2e1a;color:#a7f3d0}
+.badge-teampick{background:#0f2b3d;color:#7dd3fc}
 .slide-item .slide-title{font-size:.82rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .main-stage{flex:1;display:flex;flex-direction:column;overflow:hidden}
@@ -181,6 +182,14 @@ select.input-field{appearance:auto;cursor:pointer}
 
 .response-bubbles{display:flex;flex-direction:column;gap:.45rem}
 .response-bubble{background:var(--bg3);border-radius:var(--radius);padding:.5rem .9rem;font-size:.85rem;color:var(--text2);border-left:3px solid var(--accent);animation:slideIn .3s ease}
+.team-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.65rem;margin-top:.5rem}
+.team-btn{display:flex;flex-direction:column;align-items:flex-start;gap:.1rem;padding:.9rem 1rem 1rem;border:none;border-radius:var(--radius);cursor:pointer;color:#fff;font-family:'Space Grotesk','DM Sans',sans-serif;text-align:left;transition:opacity .15s,transform .1s;min-height:72px;width:100%;position:relative;overflow:hidden}
+.team-btn::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.12),transparent);pointer-events:none}
+.team-btn:active{transform:scale(.97)}
+.team-btn.team-full{opacity:.42;cursor:not-allowed;filter:grayscale(.55)}
+.team-btn-name{font-size:1rem;font-weight:800;line-height:1.1}
+.team-btn-count{font-size:.73rem;font-weight:700;opacity:.85;margin-top:.1rem}
+.team-btn-members{font-size:.66rem;opacity:.68;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;margin-top:.15rem}
 @keyframes slideIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
 @keyframes wordPop{from{opacity:0;transform:scale(.5)}to{opacity:1;transform:scale(1)}}
 .result-summary-block{margin-top:.75rem;padding-top:.6rem;border-top:1px solid var(--border)}
@@ -415,6 +424,7 @@ select.input-field{appearance:auto;cursor:pointer}
       <button class="module-btn" onclick="addSlide('true_false')"><span class="icon">✅</span><div><div class="label">True / False</div><div class="desc">Quick binary decisions</div></div></button>
       <button class="module-btn" onclick="addSlide('ranking')"><span class="icon">🔢</span><div><div class="label">Ranking</div><div class="desc">Drag items into order</div></div></button>
       <button class="module-btn" onclick="addSlide('spinner')"><span class="icon">🎯</span><div><div class="label">Random Picker</div><div class="desc">Spin wheel to pick someone</div></div></button>
+      <button class="module-btn" onclick="addSlide('team_pick')"><span class="icon">👥</span><div><div class="label">Team Selection</div><div class="desc">Capped team picking (max 7)</div></div></button>
       <div class="divider"></div>
       <div class="section-label">📁 Templates</div>
       <button class="module-btn" onclick="loadTemplate('evening')"><span class="icon">🌙</span><div><div class="label">Evening Reflection</div><div class="desc">Daily reflection template</div></div></button>
@@ -975,6 +985,7 @@ function setupFirebaseListeners(code) {
 function cleanupFirebaseListeners() {
   fbListeners.forEach(({ ref, event, handler }) => ref.off(event, handler));
   fbListeners = [];
+  cleanupTeamPickListener();
   _presenceCount = -1;
 }
 
@@ -1258,6 +1269,10 @@ let _knownCloudWords = new Set();   // words already shown in word cloud (skip r
 let _lastCloudSlideKey = '';        // which slide the cloud state belongs to
 let _ptimer = null;                 // participant speed-quiz countdown interval
 let _presenceCount = -1;            // live connected count from Firebase presence (-1 = not yet received)
+let _teamPickListener = null;       // {ref, handler} — targeted Firebase listener for team_pick slides
+let _teamPickSlideKey = '';         // which slide the listener covers (code_slideIdx)
+let _teamPickCounts = {};           // {teamName: count} — current selections per team
+let _teamPickNames = {};            // {teamName: [name, ...]} — who is in each team
 setInterval(() => {
   _pollTick++;
   if (isPresenterActive()) {
@@ -1289,13 +1304,13 @@ function getColors() { return ['#f97316','#6366f1','#ec4899','#14b8a6','#84cc16'
 
 function typeName(t) {
   const m = { multiple_choice:'Poll', quiz:'Quiz', word_cloud:'Word Cloud', rating:'Star Rating', open_ended:'Open Question',
-    scale:'Scale', speed_quiz:'Speed Quiz', true_false:'True / False', ranking:'Ranking', emoji_reaction:'Emoji Reaction', spinner:'Random Picker' };
+    scale:'Scale', speed_quiz:'Speed Quiz', true_false:'True / False', ranking:'Ranking', emoji_reaction:'Emoji Reaction', spinner:'Random Picker', team_pick:'Team Selection' };
   return m[t] || t;
 }
 function typeBadge(t) {
   const m = { multiple_choice:'badge-poll', quiz:'badge-quiz', word_cloud:'badge-wordcloud', rating:'badge-rating',
     open_ended:'badge-open', scale:'badge-scale', speed_quiz:'badge-speedquiz', true_false:'badge-truefalse',
-    ranking:'badge-ranking', emoji_reaction:'badge-emoji', spinner:'badge-spinner' };
+    ranking:'badge-ranking', emoji_reaction:'badge-emoji', spinner:'badge-spinner', team_pick:'badge-teampick' };
   return m[t] || 'badge-open';
 }
 
@@ -1364,6 +1379,7 @@ function createDefaultSlide(type) {
     ranking:         { question:'Rank these items from most to least important:', items:['Item 1','Item 2','Item 3'] },
     emoji_reaction:  { question:'How are you feeling right now?', emojis:['😄','😐','😔','🔥','❓','💡'] },
     spinner:         { question:'Who will answer next?', names:['Alice','Bob','Carlos','Diana','Emre'] },
+    team_pick:       { question:'Choose your team!', teams:['Team 1','Team 2','Team 3','Team 4','Team 5'], maxPerTeam:7 },
   };
   return { ...base, ...(map[type] || {}) };
 }
@@ -1413,6 +1429,15 @@ function buildSlideEditor(s, i) {
   }
   if (s.type === 'spinner') {
     extra = `<div class="form-group"><label>Names (comma-separated)</label><input class="input-field" value="${(s.names||[]).join(', ')}" onchange="slides[${i}].names=this.value.split(',').map(n=>n.trim()).filter(Boolean);saveBuilder()"><div style="font-size:.78rem;color:var(--text3);margin-top:.3rem">Leave empty to use participant names automatically</div></div>`;
+  }
+  if (s.type === 'team_pick') {
+    const teamRows = (s.teams||[]).map((t, j) => `
+      <div class="option-row">
+        <input class="input-field" value="${escQ(t)}" onchange="slides[${i}].teams[${j}]=this.value;saveBuilder()" style="flex:1">
+        <button class="btn-icon" onclick="slides[${i}].teams.splice(${j},1);renderBuilderSlides();saveBuilder()">✕</button>
+      </div>`).join('');
+    extra = `<div class="form-group"><label>Teams</label>${teamRows}<button class="btn btn-outline btn-sm" onclick="slides[${i}].teams.push('Team ${(s.teams||[]).length+1}');renderBuilderSlides();saveBuilder()" style="margin-top:.4rem">+ Add team</button></div>
+    <div class="form-group"><label>Max people per team</label><input class="input-field" type="number" min="1" max="20" value="${s.maxPerTeam||7}" onchange="slides[${i}].maxPerTeam=parseInt(this.value);saveBuilder()" style="width:120px"></div>`;
   }
 
   return `<div class="slide-editor" id="se-${i}">
@@ -1539,6 +1564,7 @@ function renderSidebarSlides() {
 
 function goToSlide(i) {
   if (appState.speedTimerInterval) { clearInterval(appState.speedTimerInterval); appState.speedTimerInterval = null; }
+  cleanupTeamPickListener();
   appState.currentSlide = i;
   appState.acceptingAnswers = true;
   const active = getActiveSession() || {};
@@ -1644,6 +1670,9 @@ function renderPresenterQuestion() {
     inner = `<div style="display:flex;gap:.5rem;margin-top:.35rem"><span style="background:#16a34a20;border:1px solid #16a34a60;border-radius:6px;padding:.2rem .7rem;font-size:.82rem;color:#4ade80">✅ True</span><span style="background:#dc262620;border:1px solid #dc262660;border-radius:6px;padding:.2rem .7rem;font-size:.82rem;color:#f87171">❌ False</span></div>`;
   } else if (s.type === 'emoji_reaction') {
     inner = `<div style="display:flex;gap:.4rem;margin-top:.35rem">${(s.emojis||['😄','😐','😔','🔥']).map(e=>`<span style="font-size:1.3rem">${e}</span>`).join('')}</div>`;
+  } else if (s.type === 'team_pick') {
+    const maxPerTeam = s.maxPerTeam || 7;
+    inner = `<div style="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.4rem">${(s.teams||[]).map((t,i) => `<span style="background:${getColors()[i%getColors().length]}30;border:1px solid ${getColors()[i%getColors().length]}60;border-radius:6px;padding:.2rem .65rem;font-size:.8rem;color:var(--text2)">${t}</span>`).join('')}</div><div style="font-size:.72rem;color:var(--text3);margin-top:.3rem">Max ${maxPerTeam} per team</div>`;
   } else if (s.type === 'spinner') {
     inner = `<div class="spinner-container">
       <div class="spinner-canvas-wrap">
@@ -1928,6 +1957,36 @@ function renderLiveChart(s, answers) {
     return `<div style="color:var(--text2);font-size:.9rem;text-align:center;padding:.5rem">🎯 Spin tool active on presenter screen</div>`;
   }
 
+  if (s.type === 'team_pick') {
+    const maxPerTeam = s.maxPerTeam || 7;
+    const tally = {};
+    const members = {};
+    (s.teams || []).forEach(t => { tally[t] = 0; members[t] = []; });
+    answers.forEach(a => {
+      if (a.value && tally[a.value] !== undefined) {
+        tally[a.value]++;
+        const nm = a.anonymous ? null : a.name;
+        if (nm && !members[a.value].includes(nm)) members[a.value].push(nm);
+      }
+    });
+    const cards = (s.teams || []).map((team, i) => {
+      const n = tally[team] || 0;
+      const full = n >= maxPerTeam;
+      const pct = Math.round(n / maxPerTeam * 100);
+      const memberStr = members[team].length ? members[team].join(', ') : '—';
+      return `<div style="background:var(--bg3);border-radius:var(--radius);padding:.75rem;border:1px solid ${full ? 'var(--accent3)' : 'var(--border)'}">
+        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.3rem">
+          <span style="font-size:.88rem;font-weight:700;color:${colors[i % colors.length]}">${escHtml(team)}</span>
+          <span style="font-size:.73rem;color:${full ? 'var(--accent3)' : 'var(--text3)'};margin-left:auto;font-weight:700">${n}/${maxPerTeam}${full ? ' ✓' : ''}</span>
+        </div>
+        <div class="bar-track" style="height:6px;margin-bottom:.4rem"><div class="bar-fill" style="width:${pct}%;background:${colors[i % colors.length]};border-radius:3px"></div></div>
+        <div style="font-size:.72rem;color:var(--text2);line-height:1.35">${escHtml(memberStr)}</div>
+      </div>`;
+    }).join('');
+    return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:.55rem">${cards}</div>
+      <div style="margin-top:.6rem;font-size:.78rem;color:var(--text3)">${count} total selection${count !== 1 ? 's' : ''}</div>`;
+  }
+
   return `<div style="color:var(--text2)">${count} responses received</div>`;
 }
 
@@ -2150,7 +2209,8 @@ function syncParticipantView() {
   const alreadyAnswered = hasAnsweredLocally(active.code, active.currentSlide, resetTs) || myAnswers.length > 0;
 
   // Skip DOM rewrite when nothing visible has changed — avoids 1-per-second full re-render
-  const viewKey = `${active.code}_${active.currentSlide}_${alreadyAnswered?1:0}_${active.acceptingAnswers?1:0}_${resetTs}`;
+  const teamSig = slide && slide.type === 'team_pick' ? JSON.stringify(_teamPickCounts) : '';
+  const viewKey = `${active.code}_${active.currentSlide}_${alreadyAnswered?1:0}_${active.acceptingAnswers?1:0}_${resetTs}_${teamSig}`;
   if (viewKey === _lastParticipantViewKey) return;
 
   // Skip re-render while user is actively typing — avoids dismissing the mobile keyboard
@@ -2222,6 +2282,22 @@ function renderParticipantQuestion(s, active) {
     body = `<div id="rank-list" class="rank-list">${itemsHtml}</div><button class="btn" onclick="submitRanking()" style="margin-top:.75rem;width:100%;justify-content:center">Submit Order</button>`;
   } else if (s.type === 'spinner') {
     body = `<div class="submitted-state"><div class="check">🎯</div><div style="color:var(--text2)">The presenter controls this activity</div></div>`;
+  } else if (s.type === 'team_pick') {
+    setupTeamPickListener(active.code, active.currentSlide);
+    const maxPerTeam = s.maxPerTeam || 7;
+    const teams = s.teams || [];
+    const btns = teams.map((team, i) => {
+      const count = _teamPickCounts[team] || 0;
+      const teamMembers = _teamPickNames[team] || [];
+      const full = count >= maxPerTeam;
+      const memberStr = teamMembers.slice(0, 4).join(', ') + (teamMembers.length > 4 ? ` +${teamMembers.length - 4}` : '');
+      return `<button class="team-btn${full ? ' team-full' : ''}" style="background:${colors[i % colors.length]}" ${full ? 'disabled' : `onclick="submitAnswer('${escQ(team)}')"`}>
+        <span class="team-btn-name">${escHtml(team)}</span>
+        <span class="team-btn-count">${count}/${maxPerTeam}${full ? ' · Full' : ''}</span>
+        ${memberStr ? `<span class="team-btn-members">${escHtml(memberStr)}</span>` : ''}
+      </button>`;
+    }).join('');
+    body = `<div class="team-grid">${btns}</div>`;
   }
 
   return `<div class="question-card"><div class="qtype">${typeName(s.type)}</div><h2>${s.question}</h2>${body}</div>`;
@@ -2247,6 +2323,49 @@ function initParticipantInteractive(s) {
       if (left <= 0) { clearInterval(_ptimer); _ptimer = null; }
     }, 500);
   }
+}
+
+// Targeted Firebase listener for team_pick slides — only active while participant is on a team_pick slide
+// and hasn't answered yet. Updates _teamPickCounts / _teamPickNames in place; the 1-second poll
+// detects viewKey change (teamSig) and re-renders naturally, so no forced syncParticipantView() here.
+function setupTeamPickListener(code, slideIndex) {
+  const key = code + '_' + slideIndex;
+  if (_teamPickSlideKey === key) return; // already subscribed to this slide
+  cleanupTeamPickListener();
+  if (!db) return;
+  _teamPickSlideKey = key;
+  const ref = db.ref('responses/' + code + '/' + slideIndex);
+  const handler = snap => {
+    const counts = {};
+    const names = {};
+    if (snap.exists()) {
+      snap.forEach(child => {
+        const a = child.val();
+        if (a && a.value) {
+          counts[a.value] = (counts[a.value] || 0) + 1;
+          const nm = a.anonymous ? null : a.name;
+          if (nm) {
+            if (!names[a.value]) names[a.value] = [];
+            if (!names[a.value].includes(nm)) names[a.value].push(nm);
+          }
+        }
+      });
+    }
+    _teamPickCounts = counts;
+    _teamPickNames = names;
+  };
+  ref.on('value', handler);
+  _teamPickListener = { ref, handler };
+}
+
+function cleanupTeamPickListener() {
+  if (_teamPickListener) {
+    _teamPickListener.ref.off('value', _teamPickListener.handler);
+    _teamPickListener = null;
+  }
+  _teamPickSlideKey = '';
+  _teamPickCounts = {};
+  _teamPickNames = {};
 }
 
 function hoverStars(n, max) { for (let i=1;i<=max;i++) { const el=document.getElementById('star-'+i); if(el) el.textContent=i<=n?'⭐':'☆'; } }
@@ -2610,6 +2729,23 @@ function renderSimpleResult(answers) {
 
   // Frequency summary by slide type
   let summary = '';
+  if (type === 'team_pick') {
+    const teamMap = {};
+    answers.forEach(a => {
+      if (!a.value) return;
+      if (!teamMap[a.value]) teamMap[a.value] = [];
+      const nm = a.anonymous ? 'Anonymous' : (a.name || '?');
+      teamMap[a.value].push(nm);
+    });
+    const teamCards = Object.entries(teamMap).map(([team, members]) =>
+      `<div style="background:var(--bg3);border-radius:var(--radius);padding:.5rem .75rem;margin-bottom:.4rem">
+        <span style="font-size:.8rem;font-weight:700;color:var(--accent2)">${team}</span>
+        <span style="font-size:.72rem;color:var(--text3);margin-left:.4rem">${members.length} member${members.length!==1?'s':''}</span>
+        <div style="font-size:.75rem;color:var(--text2);margin-top:.2rem">${members.join(', ')}</div>
+      </div>`).join('');
+    summary = `<div class="result-summary-block"><div class="result-summary-label">Team assignments</div>${teamCards}</div>`;
+    return `<div style="max-height:280px;overflow-y:auto;scrollbar-width:thin">${rows}</div>${summary}`;
+  }
   if (type !== 'open_ended' && type !== 'ranking') {
     const freq = {};
     answers.forEach(a => { const v = type === 'word_cloud' ? (a.value||'?').trim().toLowerCase() : (a.value||'?').trim(); freq[v] = (freq[v]||0)+1; });
