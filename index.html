@@ -199,6 +199,22 @@ select.input-field{appearance:auto;cursor:pointer}
 .speed-timer.warning{color:var(--accent4)}
 .speed-timer.danger{color:var(--accent5);animation:pulse .5s infinite}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+.pp-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.75rem;padding:1.5rem;max-width:920px;margin:0 auto}
+@media(max-width:640px){.pp-grid{grid-template-columns:1fr}}
+.pp-set-box{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:var(--radius2);padding:1.25rem}
+.pp-set-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:.9rem}
+.pp-word-input{display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem}
+.pp-word-num{font-size:.7rem;font-weight:700;color:var(--text3);width:1.2rem;flex-shrink:0;text-align:right}
+.pp-cards-row{display:flex;gap:.65rem;flex-wrap:wrap;justify-content:center;margin-top:1.1rem}
+.pp-card-wrap{perspective:700px;cursor:pointer;user-select:none;width:110px;height:110px}
+.pp-card{width:100%;height:100%;position:relative;transform-style:preserve-3d;transition:transform .5s cubic-bezier(.4,0,.2,1);border-radius:14px}
+.pp-card.flipped{transform:rotateY(180deg)}
+.pp-card-face{position:absolute;inset:0;border-radius:14px;display:flex;align-items:center;justify-content:center;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.pp-card-front{background:var(--bg3);border:2px solid var(--border2)}
+.pp-card-front span{font-size:2.8rem;font-weight:900;opacity:.85}
+.pp-card-back{transform:rotateY(180deg);color:#fff;padding:.6rem;text-align:center;line-height:1.3;font-size:1rem;font-weight:700;word-break:break-word}
+.pp-reset-btn{font-size:.62rem;padding:.15rem .5rem;opacity:.55}
+.pp-reset-btn:hover{opacity:1}
 .timer-bar{height:8px;border-radius:4px;background:var(--bg3);margin-bottom:1rem;overflow:hidden}
 .timer-bar-fill{height:100%;border-radius:4px;background:var(--accent3);transition:width .5s linear,background .5s}
 
@@ -572,6 +588,11 @@ select.input-field{appearance:auto;cursor:pointer}
       <h3>Snack Nicknames</h3>
       <p>Enter participant names → generates a printable two-column nickname list</p>
     </div>
+    <div class="template-card" style="--card-color:#6366f1" onclick="showParamPickerScreen()">
+      <div class="t-icon">🃏</div>
+      <h3>Parameter Picker</h3>
+      <p>2 sets of 5 numbered cards — input words, click numbers to reveal them</p>
+    </div>
   </div>
 </div>
 
@@ -829,6 +850,27 @@ select.input-field{appearance:auto;cursor:pointer}
       <h3>Preview</h3>
       <div id="snack-preview" style="background:#fff;border-radius:10px;padding:1.5rem 1.75rem;margin-top:.75rem;font-family:'Segoe UI',Arial,sans-serif;color:#111;columns:2;column-gap:2.5rem;font-size:.95rem;line-height:2"></div>
       <button class="btn" style="margin-top:1rem;width:100%" onclick="printSnackList()">🖨️ Print</button>
+    </div>
+  </div>
+</div>
+
+<!-- PARAMETER PICKER -->
+<div id="screen-parameterpicker" class="screen">
+  <div class="bingo-header">
+    <button class="btn btn-outline btn-sm" onclick="showScreen('screen-templates')">← Templates</button>
+    <h2>Parameter Picker</h2>
+    <button class="btn btn-outline btn-sm pp-reset-btn" onclick="resetAllParamCards()" style="margin-left:auto">↺ Reset cards</button>
+  </div>
+  <div class="pp-grid">
+    <div class="pp-set-box">
+      <div class="pp-set-title" style="color:#6366f1">Parameters 1</div>
+      <div id="pp-inputs-0"></div>
+      <div class="pp-cards-row" id="pp-cards-0"></div>
+    </div>
+    <div class="pp-set-box">
+      <div class="pp-set-title" style="color:#14b8a6">Parameters 2</div>
+      <div id="pp-inputs-1"></div>
+      <div class="pp-cards-row" id="pp-cards-1"></div>
     </div>
   </div>
 </div>
@@ -3659,6 +3701,75 @@ function printSnackList() {
   win.document.close();
   win.focus();
   setTimeout(() => win.print(), 400);
+}
+
+// ============================================================
+// PARAMETER PICKER
+// ============================================================
+const PP_KEY = 'erasmuslive_pp';
+const PP_COLORS = [['#6366f1','#818cf8'], ['#14b8a6','#2dd4bf']];
+let _ppWords   = [['','','','',''], ['','','','','']];
+let _ppFlipped = [[false,false,false,false,false], [false,false,false,false,false]];
+
+function showParamPickerScreen() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PP_KEY) || 'null');
+    if (saved && saved.words) { _ppWords = saved.words; }
+  } catch {}
+  _ppFlipped = [[false,false,false,false,false],[false,false,false,false,false]];
+  renderParamInputs(0);
+  renderParamInputs(1);
+  renderParamCards(0);
+  renderParamCards(1);
+  showScreen('screen-parameterpicker');
+}
+
+function renderParamInputs(g) {
+  const el = document.getElementById('pp-inputs-' + g);
+  if (!el) return;
+  el.innerHTML = _ppWords[g].map((w, i) => `
+    <div class="pp-word-input">
+      <span class="pp-word-num">${i+1}</span>
+      <input class="input-field" style="margin:0;padding:.45rem .7rem;font-size:.85rem" placeholder="Word ${i+1}"
+        value="${escQ(w)}" oninput="onParamWordInput(${g},${i},this.value)">
+    </div>`).join('');
+}
+
+function onParamWordInput(g, i, val) {
+  _ppWords[g][i] = val;
+  localStorage.setItem(PP_KEY, JSON.stringify({ words: _ppWords }));
+  // update the back face live without flipping the card
+  const back = document.getElementById(`pp-back-${g}-${i}`);
+  if (back) back.textContent = val || '?';
+}
+
+function renderParamCards(g) {
+  const el = document.getElementById('pp-cards-' + g);
+  if (!el) return;
+  const color = PP_COLORS[g][0];
+  el.innerHTML = _ppWords[g].map((w, i) => `
+    <div class="pp-card-wrap" onclick="toggleParamCard(${g},${i})">
+      <div class="pp-card${_ppFlipped[g][i] ? ' flipped' : ''}" id="pp-card-${g}-${i}">
+        <div class="pp-card-face pp-card-front">
+          <span style="color:${color}">${i+1}</span>
+        </div>
+        <div class="pp-card-face pp-card-back" style="background:${color}" id="pp-back-${g}-${i}">
+          ${escHtml(w || '?')}
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function toggleParamCard(g, i) {
+  _ppFlipped[g][i] = !_ppFlipped[g][i];
+  const card = document.getElementById(`pp-card-${g}-${i}`);
+  if (card) card.classList.toggle('flipped', _ppFlipped[g][i]);
+}
+
+function resetAllParamCards() {
+  _ppFlipped = [[false,false,false,false,false],[false,false,false,false,false]];
+  renderParamCards(0);
+  renderParamCards(1);
 }
 
 function setSplitSep(sep) {
