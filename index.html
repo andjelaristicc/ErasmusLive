@@ -181,7 +181,7 @@ select.input-field{appearance:auto;cursor:pointer}
 .text-response:focus{border-color:var(--accent)}
 
 .response-bubbles{display:flex;flex-direction:column;gap:.45rem}
-.response-bubble{background:var(--bg3);border-radius:var(--radius);padding:.5rem .9rem;font-size:.85rem;color:var(--text2);border-left:3px solid var(--accent);animation:slideIn .3s ease}
+.response-bubble{background:var(--bg3);border-radius:var(--radius);padding:.5rem .9rem;font-size:.85rem;color:var(--text2);border-left:3px solid var(--accent);animation:slideIn .3s ease;word-break:break-word;overflow-wrap:anywhere}
 .team-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.65rem;margin-top:.5rem}
 .team-btn{display:flex;flex-direction:column;align-items:flex-start;gap:.1rem;padding:.9rem 1rem 1rem;border:none;border-radius:var(--radius);cursor:pointer;color:#fff;font-family:'Space Grotesk','DM Sans',sans-serif;text-align:left;transition:opacity .15s,transform .1s;min-height:72px;width:100%;position:relative;overflow:hidden}
 .team-btn::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.12),transparent);pointer-events:none}
@@ -1581,21 +1581,51 @@ function startPresentation() {
   goToSlide(0);
 }
 
+let _endSessionCtx = null;
 function endSession() {
-  if (confirm('End session and return to start?')) {
-    closeResultsOverlay();
-    const code = appState.sessionCode;
-    if (db && code) {
-      db.ref('sessions/' + code).remove().catch(() => {});
-      db.ref('scores/' + code).remove().catch(() => {});
-      db.ref('presence/' + code).remove().catch(() => {});
-      // responses kept permanently in Firebase for historical access
+  const sid = appState.editingSessionId;
+  const slidesSnap = appState.session.length ? JSON.parse(JSON.stringify(appState.session)) : null;
+  _endSessionCtx = { sid, slidesSnap };
+  const canRunAgain = !!(sid || slidesSnap);
+  showModal(`
+    <div style="text-align:center;padding:.25rem 0">
+      <div style="font-size:2.5rem;margin-bottom:.6rem">🏁</div>
+      <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.4rem">End this session?</h2>
+      <p style="color:var(--text2);font-size:.85rem;margin-bottom:1.4rem">All responses are saved in your Results tab.</p>
+      <div style="display:flex;flex-direction:column;gap:.55rem">
+        ${canRunAgain ? `<button class="btn" onclick="_doEndSession(true)" style="background:var(--accent3)">▶&nbsp; Run Again with new code</button>` : ''}
+        <button class="btn btn-danger" onclick="_doEndSession(false)">End &amp; Return to Start</button>
+        <button class="btn btn-outline btn-sm" onclick="closeModal()" style="margin-top:.2rem">Cancel</button>
+      </div>
+    </div>
+  `);
+}
+
+function _doEndSession(runAgain) {
+  closeModal();
+  closeResultsOverlay();
+  const { sid, slidesSnap } = _endSessionCtx || {};
+  _endSessionCtx = null;
+  const code = appState.sessionCode;
+  if (db && code) {
+    db.ref('sessions/' + code).remove().catch(() => {});
+    db.ref('scores/' + code).remove().catch(() => {});
+    db.ref('presence/' + code).remove().catch(() => {});
+  }
+  localStorage.removeItem(ACTIVE_KEY);
+  cleanupFirebaseListeners();
+  if (appState.speedTimerInterval) { clearInterval(appState.speedTimerInterval); appState.speedTimerInterval = null; }
+  appState.session = [];
+  appState.sessionCode = '';
+  appState.editingSessionId = null;
+  if (runAgain) {
+    if (sid) {
+      presentSessionById(sid);
+    } else if (slidesSnap) {
+      appState.session = slidesSnap;
+      startPresentation();
     }
-    localStorage.removeItem(ACTIVE_KEY);
-    cleanupFirebaseListeners();
-    if (appState.speedTimerInterval) { clearInterval(appState.speedTimerInterval); appState.speedTimerInterval = null; }
-    appState.session = [];
-    appState.sessionCode = '';
+  } else {
     showScreen('screen-start');
   }
 }
@@ -1946,10 +1976,10 @@ function renderLiveChart(s, answers) {
     const tags = sorted.map(([w, cnt], i) => {
       const em = (minEm + (cnt / mx) * (maxEm - minEm)).toFixed(2);
       const anim = _knownCloudWords.has(w) ? '' : 'animation:wordPop .5s cubic-bezier(.34,1.56,.64,1);';
-      return `<span style="display:inline-block;font-size:${em}em;color:${colors[i%colors.length]};font-weight:700;padding:.06em .18em;${anim}line-height:1.2">${escHtml(w)}${cnt > 1 ? `<span style="font-size:.44em;opacity:.55"> ×${cnt}</span>` : ''}</span>`;
+      return `<span style="display:inline-block;font-size:${em}em;color:${colors[i%colors.length]};font-weight:700;padding:.06em .18em;${anim}line-height:1.2;max-width:100%;overflow-wrap:break-word;word-break:break-word">${escHtml(w)}${cnt > 1 ? `<span style="font-size:.44em;opacity:.55"> ×${cnt}</span>` : ''}</span>`;
     }).join('');
     sorted.forEach(([w]) => _knownCloudWords.add(w));
-    return `<div style="display:flex;flex-wrap:wrap;gap:.08rem .4rem;justify-content:center;align-items:center;width:100%;padding:.4rem 0">${tags}</div>
+    return `<div style="display:flex;flex-wrap:wrap;gap:.08rem .4rem;justify-content:center;align-items:center;width:100%;padding:.4rem 0;overflow:hidden">${tags}</div>
     <div style="font-size:.72rem;color:var(--text3);margin-top:.3rem;text-align:center">${count} response${count!==1?'s':''} · ${sorted.length} unique word${sorted.length!==1?'s':''}</div>`;
   }
 
