@@ -863,12 +863,18 @@ select.input-field{appearance:auto;cursor:pointer}
   </div>
   <div class="pp-grid">
     <div class="pp-set-box">
-      <div class="pp-set-title" style="color:#6366f1">Parameters 1</div>
+      <div style="display:flex;align-items:center;margin-bottom:.9rem">
+        <div class="pp-set-title" style="color:#6366f1;margin-bottom:0">Parameters 1</div>
+        <button class="btn btn-outline btn-sm pp-reset-btn" onclick="shuffleParamGroup(0)" style="margin-left:auto;opacity:.7;font-size:.73rem">🔀 Shuffle</button>
+      </div>
       <div id="pp-inputs-0"></div>
       <div class="pp-cards-row" id="pp-cards-0"></div>
     </div>
     <div class="pp-set-box">
-      <div class="pp-set-title" style="color:#14b8a6">Parameters 2</div>
+      <div style="display:flex;align-items:center;margin-bottom:.9rem">
+        <div class="pp-set-title" style="color:#14b8a6;margin-bottom:0">Parameters 2</div>
+        <button class="btn btn-outline btn-sm pp-reset-btn" onclick="shuffleParamGroup(1)" style="margin-left:auto;opacity:.7;font-size:.73rem">🔀 Shuffle</button>
+      </div>
       <div id="pp-inputs-1"></div>
       <div class="pp-cards-row" id="pp-cards-1"></div>
     </div>
@@ -3770,6 +3776,19 @@ function resetAllParamCards() {
   _ppFlipped = [[false,false,false,false,false],[false,false,false,false,false]];
   renderParamCards(0);
   renderParamCards(1);
+}
+
+function shuffleParamGroup(g) {
+  const arr = [..._ppWords[g]];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  _ppWords[g] = arr;
+  _ppFlipped[g] = [false, false, false, false, false];
+  localStorage.setItem(PP_KEY, JSON.stringify({ words: _ppWords }));
+  renderParamInputs(g);
+  renderParamCards(g);
 }
 
 function setSplitSep(sep) {
