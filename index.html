@@ -422,7 +422,7 @@ select.input-field{appearance:auto;cursor:pointer}
     <div class="ml-auto flex gap-1">
       <button class="btn btn-outline btn-sm" onclick="clearSession()">🗑 Clear</button>
       <button class="btn btn-outline btn-sm" onclick="explicitSave()">💾 Save</button>
-      <button class="btn btn-sm" onclick="saveAndPresent()">▶ Present</button>
+      <button class="btn btn-sm" onclick="saveAndPresent()">▶ Go Live</button>
     </div>
   </div>
   <div class="builder-body">
@@ -1170,7 +1170,7 @@ function renderSessionsScreen() {
       </div>
       <div class="session-card-actions">
         <button class="btn btn-outline btn-sm" onclick="openSession('${s.id}')">✏️ Edit</button>
-        <button class="btn btn-sm" onclick="presentSessionById('${s.id}')" ${!s.slides?.length ? 'disabled title="Add slides first"' : ''}>▶ Present</button>
+        <button class="btn btn-sm" onclick="presentSessionById('${s.id}')" ${!s.slides?.length ? 'disabled title="Add slides first"' : ''} title="Starts a fresh run with a new session code">▶ Start</button>
         <button class="btn btn-outline btn-sm" onclick="duplicateSession('${s.id}')">⧉ Duplicate</button>
         <button class="btn btn-danger btn-sm" onclick="deleteSession('${s.id}')">🗑</button>
       </div>
@@ -1583,28 +1583,23 @@ function startPresentation() {
 
 let _endSessionCtx = null;
 function endSession() {
-  const sid = appState.editingSessionId;
-  const slidesSnap = appState.session.length ? JSON.parse(JSON.stringify(appState.session)) : null;
-  _endSessionCtx = { sid, slidesSnap };
-  const canRunAgain = !!(sid || slidesSnap);
   showModal(`
     <div style="text-align:center;padding:.25rem 0">
       <div style="font-size:2.5rem;margin-bottom:.6rem">🏁</div>
       <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.4rem">End this session?</h2>
-      <p style="color:var(--text2);font-size:.85rem;margin-bottom:1.4rem">All responses are saved in your Results tab.</p>
+      <p style="color:var(--text2);font-size:.85rem;margin-bottom:1.4rem">Responses are saved. To run this session again later, go to <strong>My Sessions</strong> and click <strong>▶ Start</strong>.</p>
       <div style="display:flex;flex-direction:column;gap:.55rem">
-        ${canRunAgain ? `<button class="btn" onclick="_doEndSession(true)" style="background:var(--accent3)">▶&nbsp; Run Again with new code</button>` : ''}
-        <button class="btn btn-danger" onclick="_doEndSession(false)">End &amp; Return to Start</button>
+        <button class="btn" onclick="_doEndSession('sessions')">Go to My Sessions</button>
+        <button class="btn btn-danger" onclick="_doEndSession('start')">End &amp; Return to Home</button>
         <button class="btn btn-outline btn-sm" onclick="closeModal()" style="margin-top:.2rem">Cancel</button>
       </div>
     </div>
   `);
 }
 
-function _doEndSession(runAgain) {
+function _doEndSession(dest) {
   closeModal();
   closeResultsOverlay();
-  const { sid, slidesSnap } = _endSessionCtx || {};
   _endSessionCtx = null;
   const code = appState.sessionCode;
   if (db && code) {
@@ -1618,13 +1613,8 @@ function _doEndSession(runAgain) {
   appState.session = [];
   appState.sessionCode = '';
   appState.editingSessionId = null;
-  if (runAgain) {
-    if (sid) {
-      presentSessionById(sid);
-    } else if (slidesSnap) {
-      appState.session = slidesSnap;
-      startPresentation();
-    }
+  if (dest === 'sessions') {
+    showSessionsScreen();
   } else {
     showScreen('screen-start');
   }
