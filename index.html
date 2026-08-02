@@ -3716,11 +3716,18 @@ const PP_KEY = 'erasmuslive_pp';
 const PP_COLORS = [['#6366f1','#818cf8'], ['#14b8a6','#2dd4bf']];
 let _ppWords   = [['','','','',''], ['','','','','']];
 let _ppFlipped = [[false,false,false,false,false], [false,false,false,false,false]];
+// _ppOrder[g][cardPos] = wordIndex — which word sits behind which numbered card
+let _ppOrder   = [[0,1,2,3,4], [0,1,2,3,4]];
+
+function _ppSave() {
+  localStorage.setItem(PP_KEY, JSON.stringify({ words: _ppWords, order: _ppOrder }));
+}
 
 function showParamPickerScreen() {
   try {
     const saved = JSON.parse(localStorage.getItem(PP_KEY) || 'null');
-    if (saved && saved.words) { _ppWords = saved.words; }
+    if (saved && saved.words) _ppWords = saved.words;
+    if (saved && saved.order) _ppOrder = saved.order;
   } catch {}
   _ppFlipped = [[false,false,false,false,false],[false,false,false,false,false]];
   renderParamInputs(0);
@@ -3743,9 +3750,10 @@ function renderParamInputs(g) {
 
 function onParamWordInput(g, i, val) {
   _ppWords[g][i] = val;
-  localStorage.setItem(PP_KEY, JSON.stringify({ words: _ppWords }));
-  // update the back face live without flipping the card
-  const back = document.getElementById(`pp-back-${g}-${i}`);
+  _ppSave();
+  // find which card position currently holds word i, update its back face live
+  const cardPos = _ppOrder[g].indexOf(i);
+  const back = document.getElementById(`pp-back-${g}-${cardPos}`);
   if (back) back.textContent = val || '?';
 }
 
@@ -3753,23 +3761,25 @@ function renderParamCards(g) {
   const el = document.getElementById('pp-cards-' + g);
   if (!el) return;
   const color = PP_COLORS[g][0];
-  el.innerHTML = _ppWords[g].map((w, i) => `
-    <div class="pp-card-wrap" onclick="toggleParamCard(${g},${i})">
-      <div class="pp-card${_ppFlipped[g][i] ? ' flipped' : ''}" id="pp-card-${g}-${i}">
+  el.innerHTML = _ppOrder[g].map((wordIdx, cardPos) => {
+    const w = _ppWords[g][wordIdx] || '?';
+    return `<div class="pp-card-wrap" onclick="toggleParamCard(${g},${cardPos})">
+      <div class="pp-card${_ppFlipped[g][cardPos] ? ' flipped' : ''}" id="pp-card-${g}-${cardPos}">
         <div class="pp-card-face pp-card-front">
-          <span style="color:${color}">${i+1}</span>
+          <span style="color:${color}">${cardPos+1}</span>
         </div>
-        <div class="pp-card-face pp-card-back" style="background:${color}" id="pp-back-${g}-${i}">
-          ${escHtml(w || '?')}
+        <div class="pp-card-face pp-card-back" style="background:${color}" id="pp-back-${g}-${cardPos}">
+          ${escHtml(w)}
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
-function toggleParamCard(g, i) {
-  _ppFlipped[g][i] = !_ppFlipped[g][i];
-  const card = document.getElementById(`pp-card-${g}-${i}`);
-  if (card) card.classList.toggle('flipped', _ppFlipped[g][i]);
+function toggleParamCard(g, cardPos) {
+  _ppFlipped[g][cardPos] = !_ppFlipped[g][cardPos];
+  const card = document.getElementById(`pp-card-${g}-${cardPos}`);
+  if (card) card.classList.toggle('flipped', _ppFlipped[g][cardPos]);
 }
 
 function resetAllParamCards() {
@@ -3779,16 +3789,15 @@ function resetAllParamCards() {
 }
 
 function shuffleParamGroup(g) {
-  const arr = [..._ppWords[g]];
+  const arr = [..._ppOrder[g]];
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
-  _ppWords[g] = arr;
+  _ppOrder[g] = arr;
   _ppFlipped[g] = [false, false, false, false, false];
-  localStorage.setItem(PP_KEY, JSON.stringify({ words: _ppWords }));
-  renderParamInputs(g);
-  renderParamCards(g);
+  _ppSave();
+  renderParamCards(g); // inputs unchanged — only card mapping changes
 }
 
 function setSplitSep(sep) {
