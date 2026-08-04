@@ -571,7 +571,7 @@ select.input-field{appearance:auto;cursor:pointer}
       <input class="input-field" id="join-code" placeholder="Session code (e.g. A3F7X2)" maxlength="6" style="text-transform:uppercase;letter-spacing:3px;font-size:1.2rem;text-align:center">
       <input class="input-field" id="join-name" placeholder="Your name or nickname">
       <button class="btn" onclick="joinSession()" style="width:100%;justify-content:center;padding:1rem">Join →</button>
-      <button class="btn btn-outline" id="join-back-btn" onclick="showScreen('screen-start')" style="width:100%;justify-content:center">← Back</button>
+      <button class="btn btn-outline" id="join-back-btn" onclick="showScreen('screen-landing')" style="width:100%;justify-content:center">← Back</button>
     </div>
     <div id="participant-question-view" class="hidden"></div>
   </div>
@@ -966,6 +966,13 @@ const FIREBASE_CONFIG = {
     db = window.firebase.database();
   } catch(e) { db = null; return; }
   initSessionsSync();
+  // If participant auto-rejoin ran before db was ready, set up their Firebase listeners now
+  if (appState.participantName && appState.sessionCode && !fbListeners.length) {
+    setupFirebaseListeners(appState.sessionCode);
+    const presRef = db.ref('presence/' + appState.sessionCode + '/' + getDeviceToken());
+    presRef.set({ name: appState.participantName, ts: Date.now() }).catch(() => {});
+    presRef.onDisconnect().remove().catch(() => {});
+  }
 })();
 
 function loadFirebaseSDK() {
@@ -2373,6 +2380,8 @@ async function joinSession() {
 
   appState.participantName = name;
   appState.sessionCode = code;
+  sessionStorage.setItem('erasmuslive_p_name', name);
+  sessionStorage.setItem('erasmuslive_p_code', code);
   document.getElementById('join-form').classList.add('hidden');
   document.getElementById('participant-question-view').classList.remove('hidden');
   document.getElementById('participant-name-display').textContent = name;
@@ -2392,6 +2401,8 @@ function showSessionEndedScreen() {
   if (_sessionEndedTimer) { clearTimeout(_sessionEndedTimer); _sessionEndedTimer = null; }
   cleanupFirebaseListeners();
   cleanupTeamPickListener();
+  sessionStorage.removeItem('erasmuslive_p_name');
+  sessionStorage.removeItem('erasmuslive_p_code');
   appState.participantName = '';
   appState.sessionCode = '';
   view.innerHTML = `<div class="question-card"><div class="submitted-state"><div class="check">🏁</div><div style="font-size:1.1rem;font-weight:600;color:var(--text)">Session ended</div><div style="color:var(--text2);margin-bottom:1.5rem">Thanks for participating!</div><button class="btn" onclick="showScreen('screen-participant');document.getElementById('join-form').classList.remove('hidden');document.getElementById('participant-question-view').classList.add('hidden');document.getElementById('join-code').value='';document.getElementById('join-name').value=''">Join another session</button></div></div>`;
@@ -4146,26 +4157,50 @@ function generateBingoCard() {
     return;
   }
 
+  const isAdminAuthed = localStorage.getItem(ADMIN_AUTH_KEY) === '1';
+
   // Authenticated presenter: skip landing, show admin home
-  if (localStorage.getItem(ADMIN_AUTH_KEY) === '1') {
+  if (isAdminAuthed) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById('screen-start').classList.add('active');
   }
+
+  // Participant refresh restore: if they were in a session before the page reloaded, put them back
+  const pName = sessionStorage.getItem('erasmuslive_p_name');
+  const pCode = sessionStorage.getItem('erasmuslive_p_code');
+  if (!isAdminAuthed && pName && pCode) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen-participant').classList.add('active');
+    document.getElementById('join-form').classList.add('hidden');
+    document.getElementById('participant-question-view').classList.remove('hidden');
+    const nameDisp = document.getElementById('participant-name-display');
+    if (nameDisp) nameDisp.textContent = pName;
+    const backBtn = document.getElementById('join-back-btn');
+    if (backBtn) backBtn.style.display = 'none';
+    appState.participantName = pName;
+    appState.sessionCode = pCode;
+    // Firebase may not be ready yet; initFB() will complete the listener setup
+    setupFirebaseListeners(pCode);
+    syncParticipantView();
+    return;
+  }
   // else: screen-landing stays active (it's the default in HTML)
 
-  // If there's an active presenter session in localStorage, show reconnect banner
-  const active = getActiveSession();
-  if (active && active.code && active.slides && active.slides.length) {
-    const banner = document.createElement('div');
-    banner.id = 'reconnect-banner';
-    banner.style.cssText = 'position:fixed;bottom:1.5rem;right:1.5rem;z-index:500;background:var(--bg3);border:1px solid rgba(52,211,153,.5);border-radius:12px;padding:1rem 1.25rem;max-width:300px;box-shadow:0 8px 24px rgba(0,0,0,.4)';
-    banner.innerHTML = `<div style="font-weight:700;color:#34d399;margin-bottom:.25rem">Session still active: ${active.code}</div>
-      <div style="font-size:.78rem;color:var(--text2);margin-bottom:.75rem">${active.slides.length} slides · ${Object.keys(getResults()).filter(k=>k.startsWith(active.code+'_')).length > 0 ? 'has responses' : 'no responses yet'}</div>
-      <div style="display:flex;gap:.5rem">
-        <button class="btn btn-sm" style="flex:1" onclick="reconnectSession()">▶ Reconnect</button>
-        <button class="btn btn-outline btn-sm" onclick="this.closest('#reconnect-banner').remove()">✕</button>
-      </div>`;
-    document.body.appendChild(banner);
+  // Only show reconnect banner to authenticated presenters
+  if (isAdminAuthed) {
+    const active = getActiveSession();
+    if (active && active.code && active.slides && active.slides.length) {
+      const banner = document.createElement('div');
+      banner.id = 'reconnect-banner';
+      banner.style.cssText = 'position:fixed;bottom:1.5rem;right:1.5rem;z-index:500;background:var(--bg3);border:1px solid rgba(52,211,153,.5);border-radius:12px;padding:1rem 1.25rem;max-width:300px;box-shadow:0 8px 24px rgba(0,0,0,.4)';
+      banner.innerHTML = `<div style="font-weight:700;color:#34d399;margin-bottom:.25rem">Session still active: ${active.code}</div>
+        <div style="font-size:.78rem;color:var(--text2);margin-bottom:.75rem">${active.slides.length} slides · ${Object.keys(getResults()).filter(k=>k.startsWith(active.code+'_')).length > 0 ? 'has responses' : 'no responses yet'}</div>
+        <div style="display:flex;gap:.5rem">
+          <button class="btn btn-sm" style="flex:1" onclick="reconnectSession()">▶ Reconnect</button>
+          <button class="btn btn-outline btn-sm" onclick="this.closest('#reconnect-banner').remove()">✕</button>
+        </div>`;
+      document.body.appendChild(banner);
+    }
   }
 })();
 </script>
