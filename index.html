@@ -378,7 +378,22 @@ select.input-field{appearance:auto;cursor:pointer}
 <body>
 
 <!-- START -->
-<div id="screen-start" class="screen active">
+<div id="screen-landing" class="screen active">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:2rem;text-align:center;gap:1.5rem">
+    <h1 class="logo" style="font-size:2.4rem;margin:0">Erasmus<span class="logo-live">Live</span></h1>
+    <p class="tagline" style="margin:0">Interactive polls & games for Erasmus+ projects</p>
+    <div style="display:flex;flex-direction:column;gap:.85rem;width:100%;max-width:320px;margin-top:.75rem">
+      <button class="btn" style="padding:1.15rem;font-size:1.05rem;justify-content:center" onclick="showScreen('screen-participant')">📱 Join a Session</button>
+      <button class="btn btn-outline" style="padding:1.15rem;font-size:1.05rem;justify-content:center" onclick="showAdminLogin()">🔐 Presenter Login</button>
+    </div>
+  </div>
+</div>
+
+<div id="screen-start" class="screen">
+  <div style="position:absolute;top:1rem;right:1.25rem;display:flex;gap:.5rem">
+    <button class="btn btn-outline btn-sm" onclick="changeAdminPin()" title="Change presenter PIN" style="font-size:.75rem;padding:.3rem .6rem">🔑 PIN</button>
+    <button class="btn btn-outline btn-sm" onclick="adminLogout()" title="Lock presenter panel" style="font-size:.75rem;padding:.3rem .6rem">🔒 Lock</button>
+  </div>
   <h1 class="logo">Erasmus<span class="logo-live">Live</span></h1>
   <p class="tagline">Interactive polls, quizzes & games for Erasmus+ projects</p>
   <div class="start-grid">
@@ -896,8 +911,11 @@ const SCORES_KEY         = 'erasmuslive_scores';
 const BUILDER_KEY        = 'erasmuslive_builder';
 const SESSIONS_META_KEY  = 'erasmuslive_sessions_meta';
 const SAVED_SESSIONS_KEY = 'erasmuslive_saved_sessions';
-const ANSWERED_KEY       = 'erasmuslive_answered'; // device-local answered tracker
-const DEVICE_TOKEN_KEY   = 'erasmuslive_token';   // stable per-device identity (avoids same-name collisions)
+const ANSWERED_KEY       = 'erasmuslive_answered';
+const DEVICE_TOKEN_KEY   = 'erasmuslive_token';
+const ADMIN_PIN_KEY      = 'erasmuslive_admin_pin';
+const ADMIN_AUTH_KEY     = 'erasmuslive_admin_authed';
+const ADMIN_SCREENS      = new Set(['screen-start','screen-builder','screen-sessions','screen-presenter','screen-results','screen-qr','screen-templates','screen-musicquiz','screen-musicpresenter','screen-bingo','screen-tt','screen-snack','screen-parameterpicker']);
 
 // ============================================================
 // STATE
@@ -976,12 +994,20 @@ function setupFirebaseListeners(code) {
   const sessionRef = db.ref('sessions/' + code);
   const sh = snap => {
     if (!snap.exists()) {
-      if (isParticipantActive() && appState.participantName) {
-        localStorage.removeItem(ACTIVE_KEY);
-        showSessionEndedScreen();
+      if (isParticipantActive() && appState.participantName && !_sessionEndedTimer) {
+        // Wait 5s before declaring session ended — a network blip can cause a momentary null
+        _sessionEndedTimer = setTimeout(() => {
+          _sessionEndedTimer = null;
+          if (appState.participantName) {
+            localStorage.removeItem(ACTIVE_KEY);
+            showSessionEndedScreen();
+          }
+        }, 5000);
       }
       return;
     }
+    // Session is alive — cancel any pending "session ended" countdown
+    if (_sessionEndedTimer) { clearTimeout(_sessionEndedTimer); _sessionEndedTimer = null; }
     localStorage.setItem(ACTIVE_KEY, JSON.stringify(snap.val()));
     if (isPresenterActive()) { updateLiveResults(); updateParticipantCount(); }
     if (isParticipantActive() && appState.participantName) syncParticipantView();
@@ -1312,12 +1338,13 @@ window.addEventListener('storage', () => {
 });
 
 let _pollTick = 0;
-let _liveResultsTimer = null;       // debounce handle for updateLiveResults
-let _lastParticipantViewKey = '';   // skip-rerender guard for syncParticipantView
-let _knownCloudWords = new Set();   // words already shown in word cloud (skip re-animation)
-let _lastCloudSlideKey = '';        // which slide the cloud state belongs to
-let _ptimer = null;                 // participant speed-quiz countdown interval
-let _presenceCount = -1;            // live connected count from Firebase presence (-1 = not yet received)
+let _liveResultsTimer = null;
+let _lastParticipantViewKey = '';
+let _knownCloudWords = new Set();
+let _lastCloudSlideKey = '';
+let _ptimer = null;
+let _presenceCount = -1;
+let _sessionEndedTimer = null;      // debounce: wait before showing "session ended" (avoids false triggers on network blips)
 let _teamPickListener = null;       // {ref, handler} — targeted Firebase listener for team_pick slides
 let _teamPickSlideKey = '';         // which slide the listener covers (code_slideIdx)
 let _teamPickCounts = {};           // {teamName: count} — current selections per team
@@ -1333,9 +1360,98 @@ setInterval(() => {
 }, 1000);
 
 // ============================================================
+// ADMIN AUTH
+// ============================================================
+function showAdminLogin(targetScreen) {
+  const dest = targetScreen || 'screen-start';
+  showModal(`
+    <div style="text-align:center;padding:.5rem 0">
+      <div style="font-size:2rem;margin-bottom:.5rem">🔐</div>
+      <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.3rem">Presenter Login</h2>
+      <p style="color:var(--text2);font-size:.83rem;margin-bottom:1rem">Default PIN is <strong>9999</strong> — change it after logging in</p>
+      <input class="input-field" id="admin-pin-input" type="password" placeholder="Enter PIN" maxlength="20"
+        style="text-align:center;letter-spacing:3px;font-size:1.3rem;margin-bottom:.5rem" autofocus>
+      <div id="admin-pin-error" style="color:var(--accent5);font-size:.82rem;min-height:1.4em;margin-bottom:.6rem"></div>
+      <div style="display:flex;flex-direction:column;gap:.5rem">
+        <button class="btn" onclick="_verifyAdminPin('${escQ(dest)}')">Enter</button>
+        <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancel</button>
+      </div>
+    </div>
+  `);
+  setTimeout(() => {
+    const inp = document.getElementById('admin-pin-input');
+    if (inp) { inp.focus(); inp.addEventListener('keydown', e => { if (e.key === 'Enter') _verifyAdminPin(dest); }); }
+  }, 50);
+}
+
+function _verifyAdminPin(dest) {
+  const input = document.getElementById('admin-pin-input');
+  const err = document.getElementById('admin-pin-error');
+  if (!input) return;
+  const pin = localStorage.getItem(ADMIN_PIN_KEY) || '9999';
+  if (input.value.trim() === pin) {
+    localStorage.setItem(ADMIN_AUTH_KEY, '1');
+    closeModal();
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(dest).classList.add('active');
+    if (dest === 'screen-results') syncResultsFromFirebase().then(() => renderResultsScreen());
+  } else {
+    if (err) err.textContent = 'Incorrect PIN. Try again.';
+    input.value = '';
+    input.focus();
+  }
+}
+
+function adminLogout() {
+  if (confirm('Lock the presenter panel? Anyone visiting the page will need the PIN to access it again.')) {
+    localStorage.removeItem(ADMIN_AUTH_KEY);
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen-landing').classList.add('active');
+  }
+}
+
+function changeAdminPin() {
+  showModal(`
+    <div style="padding:.25rem 0">
+      <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:1rem">Change Presenter PIN</h2>
+      <div class="form-group">
+        <label>Current PIN</label>
+        <input class="input-field" id="pin-current" type="password" maxlength="20" autofocus>
+      </div>
+      <div class="form-group">
+        <label>New PIN (min. 4 characters)</label>
+        <input class="input-field" id="pin-new" type="password" maxlength="20">
+      </div>
+      <div id="pin-err" style="color:var(--accent5);font-size:.82rem;min-height:1.4em;margin-bottom:.5rem"></div>
+      <div class="modal-actions">
+        <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancel</button>
+        <button class="btn" onclick="_confirmChangePin()">Save PIN</button>
+      </div>
+    </div>
+  `);
+  setTimeout(() => document.getElementById('pin-current')?.focus(), 50);
+}
+
+function _confirmChangePin() {
+  const curr = document.getElementById('pin-current')?.value || '';
+  const next = document.getElementById('pin-new')?.value || '';
+  const err = document.getElementById('pin-err');
+  const pin = localStorage.getItem(ADMIN_PIN_KEY) || '9999';
+  if (curr !== pin) { if (err) err.textContent = 'Current PIN is incorrect.'; return; }
+  if (next.length < 4) { if (err) err.textContent = 'New PIN must be at least 4 characters.'; return; }
+  localStorage.setItem(ADMIN_PIN_KEY, next);
+  closeModal();
+  alert('PIN changed successfully.');
+}
+
+// ============================================================
 // NAVIGATION
 // ============================================================
 function showScreen(id) {
+  if (ADMIN_SCREENS.has(id) && localStorage.getItem(ADMIN_AUTH_KEY) !== '1') {
+    showAdminLogin(id);
+    return;
+  }
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   if (id === 'screen-results') syncResultsFromFirebase().then(() => renderResultsScreen());
@@ -2273,6 +2389,9 @@ async function joinSession() {
 function showSessionEndedScreen() {
   const view = document.getElementById('participant-question-view');
   if (!view) return;
+  if (_sessionEndedTimer) { clearTimeout(_sessionEndedTimer); _sessionEndedTimer = null; }
+  cleanupFirebaseListeners();
+  cleanupTeamPickListener();
   appState.participantName = '';
   appState.sessionCode = '';
   view.innerHTML = `<div class="question-card"><div class="submitted-state"><div class="check">🏁</div><div style="font-size:1.1rem;font-weight:600;color:var(--text)">Session ended</div><div style="color:var(--text2);margin-bottom:1.5rem">Thanks for participating!</div><button class="btn" onclick="showScreen('screen-participant');document.getElementById('join-form').classList.remove('hidden');document.getElementById('participant-question-view').classList.add('hidden');document.getElementById('join-code').value='';document.getElementById('join-name').value=''">Join another session</button></div></div>`;
@@ -2345,7 +2464,8 @@ function syncParticipantView() {
 function renderParticipantQuestion(s, active, myCurrentTeam) {
   const colors = getColors();
   const LETTERS = ['A','B','C','D','E','F','G','H'];
-  const answerGrid = (opts, extra) => `<div class="answer-grid">${opts.map((o,i) => `<button class="answer-btn" style="background:${colors[i%colors.length]}" onclick="submitAnswer('${escQ(o)}')" ${extra||''}><span class="answer-letter">${LETTERS[i]||String.fromCharCode(65+i)}</span><span class="answer-text">${o}</span></button>`).join('')}</div>`;
+  const si = active.currentSlide;
+  const answerGrid = (opts, extra) => `<div class="answer-grid">${opts.map((o,i) => `<button class="answer-btn" style="background:${colors[i%colors.length]}" onclick="submitAnswer('${escQ(o)}',${si})" ${extra||''}><span class="answer-letter">${LETTERS[i]||String.fromCharCode(65+i)}</span><span class="answer-text">${o}</span></button>`).join('')}</div>`;
   let body = '';
 
   if (s.type === 'multiple_choice') {
@@ -2361,19 +2481,19 @@ function renderParticipantQuestion(s, active, myCurrentTeam) {
       <div class="speed-timer ${pct<=30?'danger':pct<=50?'warning':''}" id="ptimer-num">${timeLeft}</div>
       ${answerGrid(s.options||[])}`;
   } else if (s.type === 'true_false') {
-    body = `<div class="tf-grid"><button class="tf-btn tf-true" onclick="submitAnswer('true')">✅ True</button><button class="tf-btn tf-false" onclick="submitAnswer('false')">❌ False</button></div>`;
+    body = `<div class="tf-grid"><button class="tf-btn tf-true" onclick="submitAnswer('true',${si})">✅ True</button><button class="tf-btn tf-false" onclick="submitAnswer('false',${si})">❌ False</button></div>`;
   } else if (s.type === 'word_cloud') {
-    body = `<input class="input-field" id="wc-inp" placeholder="Your keyword..." maxlength="30"><button class="btn" onclick="submitAnswer(document.getElementById('wc-inp').value)" style="margin-top:.75rem;width:100%;justify-content:center">Submit</button>`;
+    body = `<input class="input-field" id="wc-inp" placeholder="Your keyword..." maxlength="30"><button class="btn" onclick="submitAnswer(document.getElementById('wc-inp').value,${si})" style="margin-top:.75rem;width:100%;justify-content:center">Submit</button>`;
   } else if (s.type === 'rating') {
-    const stars = Array.from({length:s.max||5}, (_,i) => `<button class="star-btn" id="star-${i+1}" onclick="submitAnswer(${i+1})" onmouseover="hoverStars(${i+1},${s.max||5})" onmouseout="resetStars(${s.max||5})">☆</button>`).join('');
+    const stars = Array.from({length:s.max||5}, (_,i) => `<button class="star-btn" id="star-${i+1}" onclick="submitAnswer(${i+1},${si})" onmouseover="hoverStars(${i+1},${s.max||5})" onmouseout="resetStars(${s.max||5})">☆</button>`).join('');
     body = `<div class="rating-stars">${stars}</div><div style="text-align:center;font-size:.85rem;color:var(--text2)">Tap a star to rate</div>`;
   } else if (s.type === 'scale') {
-    const btns = Array.from({length:s.max-s.min+1}, (_,i) => `<button class="scale-btn" onclick="submitAnswer(${s.min+i})">${s.min+i}</button>`).join('');
+    const btns = Array.from({length:s.max-s.min+1}, (_,i) => `<button class="scale-btn" onclick="submitAnswer(${s.min+i},${si})">${s.min+i}</button>`).join('');
     body = `<div class="scale-row">${btns}</div>`;
   } else if (s.type === 'open_ended') {
-    body = `<textarea class="text-response" id="open-inp" placeholder="Your answer..." rows="3"></textarea><button class="btn" onclick="submitAnswer(document.getElementById('open-inp').value)" style="margin-top:.75rem;width:100%;justify-content:center">Submit</button>`;
+    body = `<textarea class="text-response" id="open-inp" placeholder="Your answer..." rows="3"></textarea><button class="btn" onclick="submitAnswer(document.getElementById('open-inp').value,${si})" style="margin-top:.75rem;width:100%;justify-content:center">Submit</button>`;
   } else if (s.type === 'emoji_reaction') {
-    body = `<div class="emoji-grid">${(s.emojis||['😄','😐','😔','🔥']).map(e => `<button class="emoji-reaction-btn" onclick="submitAnswer('${e}')"><span>${e}</span></button>`).join('')}</div>`;
+    body = `<div class="emoji-grid">${(s.emojis||['😄','😐','😔','🔥']).map(e => `<button class="emoji-reaction-btn" onclick="submitAnswer('${e}',${si})"><span>${e}</span></button>`).join('')}</div>`;
   } else if (s.type === 'ranking') {
     const items = [...(s.items||[])].sort(() => Math.random() - .5);
     const itemsHtml = items.map((it,i) => `<div class="rank-item" draggable="true" data-item="${escQ(it)}" id="ri-${i}"><span class="rank-handle">☰</span><span class="rank-num">${i+1}</span><span>${it}</span></div>`).join('');
@@ -2391,7 +2511,7 @@ function renderParticipantQuestion(s, active, myCurrentTeam) {
       // Full = at capacity AND it's not the team I'm already in (my spot doesn't count against me)
       const full = count >= maxPerTeam && !isMine;
       const memberStr = teamMembers.slice(0, 4).join(', ') + (teamMembers.length > 4 ? ` +${teamMembers.length - 4}` : '');
-      return `<button class="team-btn${full ? ' team-full' : ''}${isMine ? ' team-mine' : ''}" style="background:${colors[i % colors.length]}" ${full ? 'disabled' : `onclick="submitAnswer('${escQ(team)}')"`}>
+      return `<button class="team-btn${full ? ' team-full' : ''}${isMine ? ' team-mine' : ''}" style="background:${colors[i % colors.length]}" ${full ? 'disabled' : `onclick="submitAnswer('${escQ(team)}',${si})"`}>
         <span class="team-btn-name">${escHtml(team)}</span>
         <span class="team-btn-count">${count}/${maxPerTeam}${full ? ' · Full' : isMine ? ' · You are here' : ''}</span>
         ${memberStr ? `<span class="team-btn-members">${escHtml(memberStr)}</span>` : ''}
@@ -2559,17 +2679,24 @@ function submitRanking() {
   const list = document.getElementById('rank-list');
   if (!list) { alert('Nothing to rank'); return; }
   const ranked = [...list.querySelectorAll('.rank-item')].map(el => el.dataset.item);
-  submitAnswer(JSON.stringify(ranked));
+  const active = getActiveSession();
+  submitAnswer(JSON.stringify(ranked), active ? active.currentSlide : undefined);
 }
 
 // ============================================================
 // SUBMIT ANSWER + SCORING
 // ============================================================
-function submitAnswer(value) {
+function submitAnswer(value, expectedSlideIndex) {
   if (!value || String(value).trim() === '') { alert('Please enter a response.'); return; }
   const active = getActiveSession();
   if (!active) return;
-  if (!active.acceptingAnswers) return; // presenter paused or timer ended
+  if (!active.acceptingAnswers) return;
+  // Guard: if the presenter advanced slides while this question was visible, abort and re-render
+  if (expectedSlideIndex !== undefined && active.currentSlide !== expectedSlideIndex) {
+    _lastParticipantViewKey = '';
+    syncParticipantView();
+    return;
+  }
   const slide = active.slides[active.currentSlide];
   const ts = Date.now();
 
@@ -4008,17 +4135,23 @@ function generateBingoCard() {
   const params = new URLSearchParams(window.location.search);
   const code = params.get('join');
   if (code) {
-    showScreen('screen-participant');
+    // QR scan: go straight to participant join, bypass landing entirely
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen-participant').classList.add('active');
     const el = document.getElementById('join-code');
     if (el) el.value = code.toUpperCase();
-    // Hide the back button — participants who scanned a QR have nowhere to "go back" to,
-    // and showing the admin dashboard would be a security gap.
     const backBtn = document.getElementById('join-back-btn');
     if (backBtn) backBtn.style.display = 'none';
-    // Replace the URL so browser Back doesn't reload this ?join= page repeatedly
     history.replaceState(null, '', window.location.pathname);
     return;
   }
+
+  // Authenticated presenter: skip landing, show admin home
+  if (localStorage.getItem(ADMIN_AUTH_KEY) === '1') {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen-start').classList.add('active');
+  }
+  // else: screen-landing stays active (it's the default in HTML)
 
   // If there's an active presenter session in localStorage, show reconnect banner
   const active = getActiveSession();
